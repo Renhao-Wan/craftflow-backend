@@ -1,6 +1,6 @@
 # CraftFlow 工具调用
 
-流程图中只在 `FactChecker` 里提到了 Google Search 和 Python REPL，但这远远不够。真正能落地的长文 Agent，**工具调用应该贯穿整个生命周期**。
+真正能落地的长文 Agent，**工具调用应该贯穿整个生命周期**。
 
 ## 场景一：渐进式创作流 (Creation Graph)
 
