@@ -1,0 +1,27 @@
+# 默认忽略的文件
+/shelf/
+# 基于编辑器的 HTTP 客户端请求
+/httpRequests/
+# 已忽略包含查询文件的默认文件夹
+/queries/
+# Datasource local storage ignored files
+/dataSources/
+/dataSources.local.xml
+
+# Python 虚拟环境
+.venv/
+venv/
+
+# IDE 配置
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# 编译文件
+__pycache__/
+*.py[cod]
+
+# 环境变量
+.env
+.venv
