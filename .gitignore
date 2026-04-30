@@ -45,6 +45,7 @@ env/
 
 # Logs
 logs/**
+!logs/.gitkeep
 *.log
 
 # Testing
