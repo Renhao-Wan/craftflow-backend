@@ -268,8 +268,8 @@ docker run -p 8000:8000 --env-file .env craftflow-backend
 
 ## 联系方式
 
-- 项目主页: https://github.com/your-org/craftflow-backend
-- 问题反馈: https://github.com/your-org/craftflow-backend/issues
+- 项目主页: https://github.com/Renhao-Wan/craftflow-backend
+- 问题反馈: https://github.com/Renhao-Wan/craftflow-backend/issues
 
 ---
 

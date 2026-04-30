@@ -6,107 +6,107 @@
 
 ### 1. 根目录配置文件
 
-| 文件路径 | 职责描述 | 依赖模块 |
-|---------|---------|---------|
-| `.env.example` | 环境变量模板（脱敏），供协作者参考 | 无 |
-| `.env.dev` | 开发环境配置（LLM API Key、数据库连接等） | 无 |
-| `.gitignore` | Git 忽略规则（.env, logs, __pycache__, .venv 等） | 无 |
-| `pyproject.toml` | 项目依赖管理（Poetry/pip），定义 Python 版本、核心库版本 | 无 |
-| `langgraph.json` | LangGraph Studio 调试配置 | 无 |
-| `README.md` | 项目核心介绍、快速启动指南 | 无 |
+| 文件路径             | 职责描述                                       | 依赖模块 |
+|------------------|--------------------------------------------|------|
+| `.env.example`   | 环境变量模板（脱敏），供协作者参考                          | 无    |
+| `.env.dev`       | 开发环境配置（LLM API Key、数据库连接等）                 | 无    |
+| `.gitignore`     | Git 忽略规则（.env, logs, __pycache__, .venv 等） | 无    |
+| `pyproject.toml` | 项目依赖管理（Poetry/pip），定义 Python 版本、核心库版本      | 无    |
+| `langgraph.json` | LangGraph Studio 调试配置                      | 无    |
+| `README.md`      | 项目核心介绍、快速启动指南                              | 无    |
 
 ### 2. app/core/ - 基础设施层
 
-| 文件路径 | 职责描述 | 依赖模块 |
-|---------|---------|---------|
-| `app/core/__init__.py` | 包标识文件 | 无 |
-| `app/core/config.py` | 全局配置类（Pydantic BaseSettings），从 .env 读取环境变量（LLM Provider、数据库 URL、日志级别等） | `pydantic-settings` |
-| `app/core/exceptions.py` | 自定义异常类（GraphExecutionError、CheckpointerError 等）与全局异常处理器 | `fastapi` |
-| `app/core/logger.py` | 结构化日志配置（使用 loguru） | `loguru` |
+| 文件路径                     | 职责描述                                                                   | 依赖模块                |
+|--------------------------|------------------------------------------------------------------------|---------------------|
+| `app/core/__init__.py`   | 包标识文件                                                                  | 无                   |
+| `app/core/config.py`     | 全局配置类（Pydantic BaseSettings），从 .env 读取环境变量（LLM Provider、数据库 URL、日志级别等） | `pydantic-settings` |
+| `app/core/exceptions.py` | 自定义异常类（GraphExecutionError、CheckpointerError 等）与全局异常处理器                | `fastapi`           |
+| `app/core/logger.py`     | 结构化日志配置（使用 loguru）                                                     | `loguru`            |
 
 ### 3. app/schemas/ - 数据传输对象 (DTO)
 
-| 文件路径 | 职责描述 | 依赖模块 |
-|---------|---------|---------|
-| `app/schemas/__init__.py` | 包标识文件 | 无 |
-| `app/schemas/request.py` | API 请求模型（CreationRequest, PolishingRequest, ResumeRequest） | `pydantic` |
-| `app/schemas/response.py` | API 响应模型（TaskResponse, TaskStatusResponse, ErrorResponse） | `pydantic` |
+| 文件路径                      | 职责描述                                                       | 依赖模块       |
+|---------------------------|------------------------------------------------------------|------------|
+| `app/schemas/__init__.py` | 包标识文件                                                      | 无          |
+| `app/schemas/request.py`  | API 请求模型（CreationRequest, PolishingRequest, ResumeRequest） | `pydantic` |
+| `app/schemas/response.py` | API 响应模型（TaskResponse, TaskStatusResponse, ErrorResponse）  | `pydantic` |
 
 ### 4. app/graph/common/ - 共享抽象层
 
-| 文件路径 | 职责描述 | 依赖模块 |
-|---------|---------|---------|
-| `app/graph/common/__init__.py` | 包标识文件 | 无 |
+| 文件路径                              | 职责描述                                            | 依赖模块                                      |
+|-----------------------------------|-------------------------------------------------|-------------------------------------------|
+| `app/graph/common/__init__.py`    | 包标识文件                                           | 无                                         |
 | `app/graph/common/llm_factory.py` | LLM 单例工厂（根据环境变量返回 OpenAI/Anthropic/DeepSeek 实例） | `langchain-openai`, `langchain-anthropic` |
-| `app/graph/common/prompts.py` | 通用 Prompt 模板（系统角色定义、输出格式要求等） | `langchain-core` |
+| `app/graph/common/prompts.py`     | 通用 Prompt 模板（系统角色定义、输出格式要求等）                    | `langchain-core`                          |
 
 ### 5. app/graph/tools/ - 外部工具链封装
 
-| 文件路径 | 职责描述 | 依赖模块 |
-|---------|---------|---------|
-| `app/graph/tools/__init__.py` | 包标识文件 | 无 |
-| `app/graph/tools/search.py` | TavilySearch 工具封装（互联网搜索） | `langchain-community`, `tavily-python` |
-| `app/graph/tools/sandbox.py` | E2B CodeInterpreter 沙箱封装（代码执行与验证） | `e2b-code-interpreter` |
-| `app/graph/tools/validators.py` | 纯 Python 工具（链接验证、可读性计算、Markdown 解析） | `requests`, `beautifulsoup4` |
-| `app/graph/tools/retriever.py` | 本地知识库检索工具（对接 pgvector 或 Milvus） | `langchain-postgres`, `langchain-core` |
+| 文件路径                            | 职责描述                                | 依赖模块                                   |
+|---------------------------------|-------------------------------------|----------------------------------------|
+| `app/graph/tools/__init__.py`   | 包标识文件                               | 无                                      |
+| `app/graph/tools/search.py`     | TavilySearch 工具封装（互联网搜索）            | `langchain-community`, `tavily-python` |
+| `app/graph/tools/sandbox.py`    | E2B CodeInterpreter 沙箱封装（代码执行与验证）   | `e2b-code-interpreter`                 |
+| `app/graph/tools/validators.py` | 纯 Python 工具（链接验证、可读性计算、Markdown 解析） | `requests`, `beautifulsoup4`           |
+| `app/graph/tools/retriever.py`  | 本地知识库检索工具（对接 pgvector 或 Milvus）     | `langchain-postgres`, `langchain-core` |
 
 ### 6. app/graph/creation/ - Creation Graph 模块
 
-| 文件路径 | 职责描述 | 依赖模块 |
-|---------|---------|---------|
-| `app/graph/creation/__init__.py` | 包标识文件 | 无 |
-| `app/graph/creation/state.py` | CreationState TypedDict 定义（topic, outline, sections, draft） | `typing`, `langgraph` |
-| `app/graph/creation/nodes.py` | 节点实现（PlannerNode, WriterNode, ReducerNode） | `langchain-core`, `app.graph.common`, `app.graph.tools` |
-| `app/graph/creation/builder.py` | 构建与编译 Creation Graph（定义边、interrupt 点） | `langgraph`, `app.graph.creation.nodes` |
+| 文件路径                             | 职责描述                                                        | 依赖模块                                                    |
+|----------------------------------|-------------------------------------------------------------|---------------------------------------------------------|
+| `app/graph/creation/__init__.py` | 包标识文件                                                       | 无                                                       |
+| `app/graph/creation/state.py`    | CreationState TypedDict 定义（topic, outline, sections, draft） | `typing`, `langgraph`                                   |
+| `app/graph/creation/nodes.py`    | 节点实现（PlannerNode, WriterNode, ReducerNode）                  | `langchain-core`, `app.graph.common`, `app.graph.tools` |
+| `app/graph/creation/builder.py`  | 构建与编译 Creation Graph（定义边、interrupt 点）                       | `langgraph`, `app.graph.creation.nodes`                 |
 
 ### 7. app/graph/polishing/ - Polishing Graph 模块
 
-| 文件路径 | 职责描述 | 依赖模块 |
-|---------|---------|---------|
-| `app/graph/polishing/__init__.py` | 包标识文件 | 无 |
-| `app/graph/polishing/state.py` | PolishingState 与 DebateState TypedDict 定义 | `typing`, `langgraph` |
-| `app/graph/polishing/nodes.py` | 节点实现（RouterNode, FormatterNode, FactCheckerNode, AuthorNode, EditorNode） | `langchain-core`, `app.graph.common`, `app.graph.tools` |
-| `app/graph/polishing/debate_graph.py` | 独立的 Debate Subgraph 编译（Author-Editor 对抗循环） | `langgraph`, `app.graph.polishing.nodes` |
-| `app/graph/polishing/builder.py` | 构建与编译 Polishing 主图（条件路由、子图调用） | `langgraph`, `app.graph.polishing.debate_graph` |
+| 文件路径                                  | 职责描述                                                                     | 依赖模块                                                    |
+|---------------------------------------|--------------------------------------------------------------------------|---------------------------------------------------------|
+| `app/graph/polishing/__init__.py`     | 包标识文件                                                                    | 无                                                       |
+| `app/graph/polishing/state.py`        | PolishingState 与 DebateState TypedDict 定义                                | `typing`, `langgraph`                                   |
+| `app/graph/polishing/nodes.py`        | 节点实现（RouterNode, FormatterNode, FactCheckerNode, AuthorNode, EditorNode） | `langchain-core`, `app.graph.common`, `app.graph.tools` |
+| `app/graph/polishing/debate_graph.py` | 独立的 Debate Subgraph 编译（Author-Editor 对抗循环）                               | `langgraph`, `app.graph.polishing.nodes`                |
+| `app/graph/polishing/builder.py`      | 构建与编译 Polishing 主图（条件路由、子图调用）                                            | `langgraph`, `app.graph.polishing.debate_graph`         |
 
 ### 8. app/services/ - 业务服务层
 
-| 文件路径 | 职责描述 | 依赖模块 |
-|---------|---------|---------|
-| `app/services/__init__.py` | 包标识文件 | 无 |
-| `app/services/checkpointer.py` | Checkpointer 单例管理（根据环境变量返回 MemorySaver 或 PostgresSaver） | `langgraph-checkpoint`, `langgraph-checkpoint-postgres` |
-| `app/services/creation_svc.py` | Creation 业务逻辑封装（启动任务、处理 interrupt、恢复执行） | `app.graph.creation.builder`, `app.services.checkpointer` |
-| `app/services/polishing_svc.py` | Polishing 业务逻辑封装（启动任务、模式路由） | `app.graph.polishing.builder`, `app.services.checkpointer` |
+| 文件路径                            | 职责描述                                                    | 依赖模块                                                       |
+|---------------------------------|---------------------------------------------------------|------------------------------------------------------------|
+| `app/services/__init__.py`      | 包标识文件                                                   | 无                                                          |
+| `app/services/checkpointer.py`  | Checkpointer 单例管理（根据环境变量返回 MemorySaver 或 PostgresSaver） | `langgraph-checkpoint`, `langgraph-checkpoint-postgres`    |
+| `app/services/creation_svc.py`  | Creation 业务逻辑封装（启动任务、处理 interrupt、恢复执行）                 | `app.graph.creation.builder`, `app.services.checkpointer`  |
+| `app/services/polishing_svc.py` | Polishing 业务逻辑封装（启动任务、模式路由）                             | `app.graph.polishing.builder`, `app.services.checkpointer` |
 
 ### 9. app/api/ - Controller 层
 
-| 文件路径 | 职责描述 | 依赖模块 |
-|---------|---------|---------|
-| `app/api/__init__.py` | 包标识文件 | 无 |
-| `app/api/dependencies.py` | FastAPI 依赖注入（获取 Graph 实例、Checkpointer、日志器） | `fastapi`, `app.services` |
-| `app/api/v1/__init__.py` | 包标识文件 | 无 |
-| `app/api/v1/creation.py` | Creation 相关路由（POST /creation, GET /tasks/{id}, POST /tasks/{id}/resume） | `fastapi`, `app.schemas`, `app.services.creation_svc` |
-| `app/api/v1/polishing.py` | Polishing 相关路由（POST /polishing） | `fastapi`, `app.schemas`, `app.services.polishing_svc` |
-| `app/api/v1/router.py` | 聚合 v1 版本所有路由 | `fastapi`, `app.api.v1.creation`, `app.api.v1.polishing` |
+| 文件路径                      | 职责描述                                                                    | 依赖模块                                                     |
+|---------------------------|-------------------------------------------------------------------------|----------------------------------------------------------|
+| `app/api/__init__.py`     | 包标识文件                                                                   | 无                                                        |
+| `app/api/dependencies.py` | FastAPI 依赖注入（获取 Graph 实例、Checkpointer、日志器）                              | `fastapi`, `app.services`                                |
+| `app/api/v1/__init__.py`  | 包标识文件                                                                   | 无                                                        |
+| `app/api/v1/creation.py`  | Creation 相关路由（POST /creation, GET /tasks/{id}, POST /tasks/{id}/resume） | `fastapi`, `app.schemas`, `app.services.creation_svc`    |
+| `app/api/v1/polishing.py` | Polishing 相关路由（POST /polishing）                                         | `fastapi`, `app.schemas`, `app.services.polishing_svc`   |
+| `app/api/v1/router.py`    | 聚合 v1 版本所有路由                                                            | `fastapi`, `app.api.v1.creation`, `app.api.v1.polishing` |
 
 ### 10. app/main.py - 应用入口
 
-| 文件路径 | 职责描述 | 依赖模块 |
-|---------|---------|---------|
+| 文件路径          | 职责描述                                              | 依赖模块                                       |
+|---------------|---------------------------------------------------|--------------------------------------------|
 | `app/main.py` | FastAPI 应用实例化、中间件挂载、生命周期事件（startup/shutdown）、路由注册 | `fastapi`, `app.api.v1.router`, `app.core` |
 
 ### 11. tests/ - 测试模块
 
-| 文件路径 | 职责描述 | 依赖模块 |
-|---------|---------|---------|
-| `tests/__init__.py` | 包标识文件 | 无 |
-| `tests/conftest.py` | Pytest 全局夹具（mock LLM、测试数据库、测试客户端） | `pytest`, `pytest-asyncio` |
-| `tests/test_api/__init__.py` | 包标识文件 | 无 |
-| `tests/test_api/test_creation.py` | Creation API 端到端测试 | `httpx`, `pytest` |
-| `tests/test_api/test_polishing.py` | Polishing API 端到端测试 | `httpx`, `pytest` |
-| `tests/test_graph/__init__.py` | 包标识文件 | 无 |
-| `tests/test_graph/test_creation_graph.py` | Creation Graph 单元测试（节点逻辑、状态流转） | `pytest`, `app.graph.creation` |
-| `tests/test_graph/test_polishing_graph.py` | Polishing Graph 单元测试 | `pytest`, `app.graph.polishing` |
+| 文件路径                                       | 职责描述                              | 依赖模块                            |
+|--------------------------------------------|-----------------------------------|---------------------------------|
+| `tests/__init__.py`                        | 包标识文件                             | 无                               |
+| `tests/conftest.py`                        | Pytest 全局夹具（mock LLM、测试数据库、测试客户端） | `pytest`, `pytest-asyncio`      |
+| `tests/test_api/__init__.py`               | 包标识文件                             | 无                               |
+| `tests/test_api/test_creation.py`          | Creation API 端到端测试                | `httpx`, `pytest`               |
+| `tests/test_api/test_polishing.py`         | Polishing API 端到端测试               | `httpx`, `pytest`               |
+| `tests/test_graph/__init__.py`             | 包标识文件                             | 无                               |
+| `tests/test_graph/test_creation_graph.py`  | Creation Graph 单元测试（节点逻辑、状态流转）    | `pytest`, `app.graph.creation`  |
+| `tests/test_graph/test_polishing_graph.py` | Polishing Graph 单元测试              | `pytest`, `app.graph.polishing` |
 
 ---
 
@@ -198,25 +198,25 @@ ruff = "^0.8.4"
 
 ## 五、关键技术决策记录
 
-| 决策点 | 选型 | 理由 |
-|-------|------|------|
-| **状态持久化** | PostgresSaver（生产）/ MemorySaver（开发） | LangGraph 原生支持，避免自研状态管理 |
-| **异步框架** | FastAPI + asyncio | 高性能异步 I/O，与 LangGraph 异步 API 无缝集成 |
-| **日志方案** | loguru | 结构化日志，开箱即用，比标准 logging 更优雅 |
-| **工具绑定** | LangChain @tool + bind_tools() | 标准化工具调用，支持自动 schema 生成 |
-| **测试框架** | pytest + pytest-asyncio | 异步测试支持，夹具机制强大 |
-| **代码质量** | black + ruff | 自动格式化 + 快速 linting |
+| 决策点       | 选型                                 | 理由                                |
+|-----------|------------------------------------|-----------------------------------|
+| **状态持久化** | PostgresSaver（生产）/ MemorySaver（开发） | LangGraph 原生支持，避免自研状态管理           |
+| **异步框架**  | FastAPI + asyncio                  | 高性能异步 I/O，与 LangGraph 异步 API 无缝集成 |
+| **日志方案**  | loguru                             | 结构化日志，开箱即用，比标准 logging 更优雅        |
+| **工具绑定**  | LangChain @tool + bind_tools()     | 标准化工具调用，支持自动 schema 生成            |
+| **测试框架**  | pytest + pytest-asyncio            | 异步测试支持，夹具机制强大                     |
+| **代码质量**  | black + ruff                       | 自动格式化 + 快速 linting                |
 
 ---
 
 ## 六、风险与缓解措施
 
-| 风险 | 影响 | 缓解措施 |
-|------|------|---------|
-| **LLM API 限流** | 高并发场景下 WriterNode 可能失败 | 1. 实现指数退避重试<br>2. 配置 Rate Limiter（Redis） |
-| **Checkpointer 状态膨胀** | MemorySaver 长期运行内存泄漏 | 1. 开发环境定期清理<br>2. 生产环境强制使用 PostgresSaver |
-| **工具调用超时** | E2B 沙箱或搜索 API 响应慢 | 1. 设置工具调用超时（30s）<br>2. 降级策略（跳过工具，记录日志） |
-| **图状态不一致** | 并发修改同一 thread_id | 1. 业务层加锁（Redis 分布式锁）<br>2. 前端禁止并发提交 |
+| 风险                    | 影响                     | 缓解措施                                     |
+|-----------------------|------------------------|------------------------------------------|
+| **LLM API 限流**        | 高并发场景下 WriterNode 可能失败 | 1. 实现指数退避重试<br>2. 配置 Rate Limiter（Redis） |
+| **Checkpointer 状态膨胀** | MemorySaver 长期运行内存泄漏   | 1. 开发环境定期清理<br>2. 生产环境强制使用 PostgresSaver |
+| **工具调用超时**            | E2B 沙箱或搜索 API 响应慢      | 1. 设置工具调用超时（30s）<br>2. 降级策略（跳过工具，记录日志）   |
+| **图状态不一致**            | 并发修改同一 thread_id       | 1. 业务层加锁（Redis 分布式锁）<br>2. 前端禁止并发提交      |
 
 ---
 
