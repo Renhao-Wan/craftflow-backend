@@ -1,5 +1,89 @@
 [project]
 name = "craftflow-backend"
 version = "0.1.0"
+description = "CraftFlow - 智能长文织造与多阶审校平台后端服务"
+authors = [{name = "CraftFlow Team"}]
+readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+    "langgraph>=0.2.60",
+    "langgraph-checkpoint>=2.0.10",
+    "langgraph-checkpoint-postgres>=2.0.14",
+    "langchain>=0.3.14",
+    "langchain-core>=0.3.28",
+    "langchain-openai>=0.2.14",
+    "langchain-anthropic>=0.3.3",
+    "langchain-community>=0.3.13",
+    "tavily-python>=0.5.0",
+    "e2b-code-interpreter>=1.0.4",
+    "requests>=2.32.3",
+    "beautifulsoup4>=4.12.3",
+    "loguru>=0.7.3",
+    "python-dotenv>=1.0.1",
+    "asyncpg>=0.30.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.4",
+    "pytest-asyncio>=0.24.0",
+    "httpx>=0.28.1",
+    "black>=24.10.0",
+    "ruff>=0.8.4",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "C",  # flake8-comprehensions
+    "B",  # flake8-bugbear
+]
+ignore = [
+    "E501",  # line too long, handled by black
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+]
+
+[tool.ruff.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra -q --strict-markers"
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"

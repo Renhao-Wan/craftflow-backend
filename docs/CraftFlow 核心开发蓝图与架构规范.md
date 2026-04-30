@@ -153,7 +153,7 @@ craftflow-backend/
 │   ├── core/                    # 基础设施层
 │   │   ├── config.py            # 全局配置 (Pydantic BaseSettings 读取 .env)
 │   │   ├── exceptions.py        # 全局异常捕获与自定义异常
-│   │   └── logger.py            # 日志配置 (Loguru / 标准 logging)
+│   │   └── logger.py            # 日志配置 (Loguru)
 │   ├── graph/                   # ★ LangGraph 核心编排引擎层
 │   │   ├── common/              # 共享抽象 (通用状态类、基础 Agent Prompt)
 │   │   ├── tools/               # 外部工具链封装

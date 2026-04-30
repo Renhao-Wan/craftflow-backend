@@ -1,27 +1,91 @@
-# 默认忽略的文件
-/shelf/
-# 基于编辑器的 HTTP 客户端请求
-/httpRequests/
-# 已忽略包含查询文件的默认文件夹
-/queries/
-# Datasource local storage ignored files
-/dataSources/
-/dataSources.local.xml
-
-# Python 虚拟环境
-.venv/
-venv/
-
-# IDE 配置
-.idea/
-*.iml
-*.iws
-*.ipr
-
-# 编译文件
+# Python
 __pycache__/
 *.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
-# 环境变量
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+.virtualenv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment Variables
 .env
-.venv
+.env.dev
+.env.local
+.env.*.local
+
+# Logs
+logs/**
+*.log
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Ruff
+.ruff_cache/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# LangGraph
+.langgraph/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# MacOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
