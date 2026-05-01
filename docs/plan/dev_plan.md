@@ -38,7 +38,7 @@
 |-----------------------------------|-------------------------------------------------|-------------------------------------------|
 | `app/graph/common/__init__.py`    | 包标识文件                                           | 无                                         |
 | `app/graph/common/llm_factory.py` | LLM 单例工厂（根据环境变量返回 OpenAI/Anthropic/DeepSeek 实例） | `langchain-openai`, `langchain-anthropic` |
-| `app/graph/common/prompts.py`     | 通用 Prompt 模板（系统角色定义、输出格式要求等）                    | `langchain-core`                          |
+| `app/graph/common/prompts.py`     | **仅存放通用、跨模块可复用的 Prompt 模板**（如：通用输出格式、Markdown 规范等） | `langchain-core`                          |
 
 ### 5. app/graph/tools/ - 外部工具链封装
 
@@ -56,7 +56,8 @@
 |----------------------------------|-------------------------------------------------------------|---------------------------------------------------------|
 | `app/graph/creation/__init__.py` | 包标识文件                                                       | 无                                                       |
 | `app/graph/creation/state.py`    | CreationState TypedDict 定义（topic, outline, sections, draft） | `typing`, `langgraph`                                   |
-| `app/graph/creation/nodes.py`    | 节点实现（PlannerNode, WriterNode, ReducerNode）                  | `langchain-core`, `app.graph.common`, `app.graph.tools` |
+| `app/graph/creation/prompts.py`  | **Creation 专属 Prompt 模板**（PlannerNode、WriterNode、ReducerNode 的提示词） | `langchain-core`                                        |
+| `app/graph/creation/nodes.py`    | 节点实现（PlannerNode, WriterNode, ReducerNode）                  | `langchain-core`, `app.graph.common`, `app.graph.tools`, `app.graph.creation.prompts` |
 | `app/graph/creation/builder.py`  | 构建与编译 Creation Graph（定义边、interrupt 点）                       | `langgraph`, `app.graph.creation.nodes`                 |
 
 ### 7. app/graph/polishing/ - Polishing Graph 模块
@@ -65,7 +66,8 @@
 |---------------------------------------|--------------------------------------------------------------------------|---------------------------------------------------------|
 | `app/graph/polishing/__init__.py`     | 包标识文件                                                                    | 无                                                       |
 | `app/graph/polishing/state.py`        | PolishingState 与 DebateState TypedDict 定义                                | `typing`, `langgraph`                                   |
-| `app/graph/polishing/nodes.py`        | 节点实现（RouterNode, FormatterNode, FactCheckerNode, AuthorNode, EditorNode） | `langchain-core`, `app.graph.common`, `app.graph.tools` |
+| `app/graph/polishing/prompts.py`      | **Polishing 专属 Prompt 模板**（RouterNode、FormatterNode、FactCheckerNode、AuthorNode、EditorNode 的提示词） | `langchain-core`                                        |
+| `app/graph/polishing/nodes.py`        | 节点实现（RouterNode, FormatterNode, FactCheckerNode, AuthorNode, EditorNode） | `langchain-core`, `app.graph.common`, `app.graph.tools`, `app.graph.polishing.prompts` |
 | `app/graph/polishing/debate_graph.py` | 独立的 Debate Subgraph 编译（Author-Editor 对抗循环）                               | `langgraph`, `app.graph.polishing.nodes`                |
 | `app/graph/polishing/builder.py`      | 构建与编译 Polishing 主图（条件路由、子图调用）                                            | `langgraph`, `app.graph.polishing.debate_graph`         |
 
@@ -117,13 +119,13 @@
 | **Task 1**  | 项目初始化与配置           | 是    | `.gitignore`, `pyproject.toml`, `.env.example`, `.env.dev`, `README.md`, `langgraph.json`                                  | 1. 创建 Poetry/pip 项目结构<br>2. 定义核心依赖（fastapi, langgraph, langchain, pydantic）<br>3. 配置 .gitignore 忽略敏感文件<br>4. 创建所有目录结构和 __init__.py 文件                                 | 100  | `poetry`, `python-dotenv`                                             |
 | **Task 2**  | 基础设施层实现            | 是    | `app/core/config.py`, `app/core/logger.py`, `app/core/exceptions.py`                                                       | 1. 使用 Pydantic BaseSettings 读取环境变量<br>2. 配置结构化日志（loguru）<br>3. 定义自定义异常类与 FastAPI 异常处理器                                                                                | 150  | `pydantic-settings`, `loguru`                                         |
 | **Task 3**  | 数据模型定义             | 是    | `app/schemas/request.py`, `app/schemas/response.py`                                                                        | 1. 定义 CreationRequest（topic, description）<br>2. 定义 PolishingRequest（content, mode）<br>3. 定义 TaskResponse、TaskStatusResponse                                           | 120  | `pydantic`                                                            |
-| **Task 4**  | LLM 工厂与通用 Prompt   | 否    | `app/graph/common/llm_factory.py`, `app/graph/common/prompts.py`                                                           | 1. 实现单例模式的 LLM 工厂<br>2. 定义通用 Prompt 模板（系统角色、输出格式）                                                                                                                     | 180  | `langchain-openai`, `langchain-anthropic`, `langchain-core`           |
+| **Task 4**  | LLM 工厂与通用 Prompt   | 否    | `app/graph/common/llm_factory.py`, `app/graph/common/prompts.py`                                                           | 1. 实现单例模式的 LLM 工厂（根据环境变量返回不同 Provider）<br>2. 定义**通用、跨模块可复用**的 Prompt 模板（如：Markdown 输出格式规范、通用角色定义等）                                                                                                                                     | 180  | `langchain-openai`, `langchain-anthropic`, `langchain-core`           |
 | **Task 5**  | 工具链封装              | 否    | `app/graph/tools/search.py`, `app/graph/tools/sandbox.py`, `app/graph/tools/validators.py`, `app/graph/tools/retriever.py` | 1. 封装 TavilySearch 为 @tool<br>2. 封装 E2B CodeInterpreter<br>3. 实现链接验证、可读性计算工具<br>4. 实现本地知识库检索（可选，先占位）                                                                  | 250  | `tavily-python`, `e2b-code-interpreter`, `requests`, `beautifulsoup4` |
 | **Task 6**  | Creation State 定义  | 否    | `app/graph/creation/state.py`                                                                                              | 1. 定义 CreationState TypedDict<br>2. 配置 sections 字段的 Reducer（operator.add）                                                                                             | 50   | `typing`, `langgraph`                                                 |
-| **Task 7**  | Creation 节点实现      | 否    | `app/graph/creation/nodes.py`                                                                                              | 1. PlannerNode：调用 LLM 生成大纲，绑定 TavilySearch 工具<br>2. WriterNode：并发节点，生成单章内容<br>3. ReducerNode：合并章节，润色过渡段                                                               | 300  | `langchain-core`, `app.graph.common`, `app.graph.tools`               |
+| **Task 7**  | Creation Prompts 与节点实现      | 否    | `app/graph/creation/prompts.py`, `app/graph/creation/nodes.py`                                                                                              | 1. **创建 Creation 专属 Prompt 模板**（PlannerNode、WriterNode、ReducerNode）<br>2. PlannerNode：调用 LLM 生成大纲，绑定 TavilySearch 工具<br>3. WriterNode：并发节点，生成单章内容<br>4. ReducerNode：合并章节，润色过渡段                                                               | 350  | `langchain-core`, `app.graph.common`, `app.graph.tools`               |
 | **Task 8**  | Creation Graph 构建  | 否    | `app/graph/creation/builder.py`                                                                                            | 1. 使用 StateGraph 定义节点与边<br>2. 配置 interrupt_before（大纲确认点）<br>3. 实现 Map Edge（Send API 扇出）<br>4. 编译图并返回单例                                                                | 200  | `langgraph`                                                           |
 | **Task 9**  | Polishing State 定义 | 否    | `app/graph/polishing/state.py`                                                                                             | 1. 定义 PolishingState TypedDict<br>2. 定义 DebateState TypedDict（用于子图）                                                                                                   | 60   | `typing`, `langgraph`                                                 |
-| **Task 10** | Polishing 节点实现     | 否    | `app/graph/polishing/nodes.py`                                                                                             | 1. RouterNode：条件路由逻辑<br>2. FormatterNode：单次格式化<br>3. FactCheckerNode：调用工具进行事实核查<br>4. AuthorNode：重写内容<br>5. EditorNode：打分与反馈                                          | 350  | `langchain-core`, `app.graph.common`, `app.graph.tools`               |
+| **Task 10** | Polishing Prompts 与节点实现     | 否    | `app/graph/polishing/prompts.py`, `app/graph/polishing/nodes.py`                                                                                             | 1. **创建 Polishing 专属 Prompt 模板**（RouterNode、FormatterNode、FactCheckerNode、AuthorNode、EditorNode）<br>2. RouterNode：条件路由逻辑<br>3. FormatterNode：单次格式化<br>4. FactCheckerNode：调用工具进行事实核查<br>5. AuthorNode：重写内容<br>6. EditorNode：打分与反馈                                          | 400  | `langchain-core`, `app.graph.common`, `app.graph.tools`               |
 | **Task 11** | Debate Subgraph 构建 | 否    | `app/graph/polishing/debate_graph.py`                                                                                      | 1. 定义 Author-Editor 对抗循环<br>2. 配置条件边（score >= 90 或 iteration >= 3 结束）<br>3. 编译子图并导出                                                                                   | 150  | `langgraph`                                                           |
 | **Task 12** | Polishing Graph 构建 | 否    | `app/graph/polishing/builder.py`                                                                                           | 1. 定义主图节点与条件边<br>2. 集成 Debate Subgraph<br>3. 实现三档模式路由（Mode 1/2/3）<br>4. 编译图并返回单例                                                                                      | 220  | `langgraph`, `app.graph.polishing.debate_graph`                       |
 | **Task 13** | Checkpointer 与服务层  | 否    | `app/services/checkpointer.py`, `app/services/creation_svc.py`, `app/services/polishing_svc.py`                            | 1. 实现 Checkpointer 单例（开发用 MemorySaver，生产用 PostgresSaver）<br>2. 封装 Creation 业务逻辑（启动、恢复、状态查询）<br>3. 封装 Polishing 业务逻辑                                                   | 400  | `langgraph-checkpoint`, `langgraph-checkpoint-postgres`               |
@@ -133,7 +135,85 @@
 
 ---
 
-## 三、开发顺序建议
+## 三、Prompt 管理策略
+
+详细内容请参见 [Prompt 管理策略](./supplementar/prompt_management_strategy.md)。
+
+### 设计原则
+
+为了保持代码的高内聚低耦合，Prompt 模板按照以下原则组织：
+
+#### 1. **通用 Prompt** → `app/graph/common/prompts.py`
+
+**存放内容**：
+- 跨模块可复用的通用模板
+- 输出格式规范（如：Markdown 格式要求、JSON Schema 定义）
+- 通用角色定义（如：专业技术写作者、编辑的基础人设）
+- 通用约束条件（如：禁止幻觉、事实核查要求）
+
+**示例**：
+```python
+# app/graph/common/prompts.py
+MARKDOWN_FORMAT_TEMPLATE = """
+输出必须严格遵循 Markdown 格式：
+- 使用 # ## ### 表示标题层级
+- 代码块使用 ```语言名 包裹
+- 链接格式：[文本](URL)
+"""
+
+PROFESSIONAL_WRITER_ROLE = """
+你是一位资深技术写作专家，擅长将复杂概念转化为清晰易懂的文章。
+"""
+```
+
+#### 2. **业务专属 Prompt** → 各模块的 `prompts.py`
+
+**存放内容**：
+- 特定节点的专属提示词
+- 业务逻辑相关的指令
+- 模块特有的输入输出格式
+
+**示例**：
+```python
+# app/graph/creation/prompts.py
+PLANNER_SYSTEM_PROMPT = """
+你是一位专业的内容策划师，负责根据主题生成结构化大纲...
+"""
+
+WRITER_SYSTEM_PROMPT = """
+你是一位专业的章节撰写者，负责根据大纲撰写单个章节...
+"""
+
+# app/graph/polishing/prompts.py
+EDITOR_SCORING_PROMPT = """
+你是一位严格的主编，负责对文章进行多维度打分...
+"""
+```
+
+### 文件组织结构
+
+```
+app/graph/
+├── common/
+│   └── prompts.py          # ✅ 通用、跨模块可复用的模板
+├── creation/
+│   ├── prompts.py          # ✅ Creation 专属（Planner、Writer、Reducer）
+│   └── nodes.py            # 导入 creation.prompts
+└── polishing/
+    ├── prompts.py          # ✅ Polishing 专属（Router、Formatter、FactChecker、Author、Editor）
+    └── nodes.py            # 导入 polishing.prompts
+```
+
+### 优势
+
+1. **高内聚**：业务逻辑与提示词在同一模块，便于维护
+2. **低耦合**：通用模板独立，避免循环依赖
+3. **易扩展**：新增节点只需在对应模块添加 Prompt
+4. **清晰职责**：一眼看出哪些是通用的，哪些是业务专属的
+
+---
+
+## 四、开发顺序建议
 
 ### 阶段一：基础设施（Task 1-3）
 - 目标：搭建项目骨架，确保配置、日志、异常处理可用
@@ -161,7 +241,7 @@
 
 ---
 
-## 四、核心依赖库清单
+## 五、核心依赖库清单
 
 ```toml
 [tool.poetry.dependencies]
@@ -196,7 +276,7 @@ ruff = "^0.8.4"
 
 ---
 
-## 五、关键技术决策记录
+## 六、关键技术决策记录
 
 | 决策点       | 选型                                 | 理由                                |
 |-----------|------------------------------------|-----------------------------------|
@@ -209,7 +289,7 @@ ruff = "^0.8.4"
 
 ---
 
-## 六、风险与缓解措施
+## 七、风险与缓解措施
 
 | 风险                    | 影响                     | 缓解措施                                     |
 |-----------------------|------------------------|------------------------------------------|
@@ -220,7 +300,7 @@ ruff = "^0.8.4"
 
 ---
 
-## 七、后续扩展方向
+## 八、后续扩展方向
 
 1. **流式响应**：使用 `graph.astream_events()` 实现 SSE，提升用户体验
 2. **多租户隔离**：在 Checkpointer 中增加 `namespace` 维度
