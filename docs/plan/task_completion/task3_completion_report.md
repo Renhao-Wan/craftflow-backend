@@ -135,7 +135,7 @@
 ### 验证测试
 
 ```bash
-python scripts/verify_installation.py
+python scripts/test_exceptions.py
 ```
 
 所有模型可以正确导入，无语法错误。
@@ -151,8 +151,58 @@ python scripts/verify_installation.py
 | TaskResponse | ✅ 已实现 | 包含 task_id, status, message |
 | TaskStatusResponse | ✅ 已实现 | 支持多状态差异化字段 |
 | ResumeRequest | ✅ 已实现 | 支持多种恢复动作 |
-| ErrorResponse | ✅ 已实现 | 统一错误响应格式 |
+| ErrorResponse | ✅ 已实现 | 统一错误响应格式，已集成到异常处理器 |
 | HealthResponse | ✅ 已实现 | 额外增加，用于健康检查 |
+
+---
+
+## 异常处理集成
+
+### 完成的改进
+
+1. **统一 ErrorResponse 模型**
+   - 删除了 `app/core/exceptions.py` 中重复的 `ErrorResponse` 定义
+   - 所有异常处理器现在使用 `app/schemas/response.py` 中的标准 `ErrorResponse`
+   - 确保了整个应用的错误响应格式一致
+
+2. **异常处理器更新**
+   - `craftflow_exception_handler`: 处理自定义业务异常
+   - `validation_exception_handler`: 处理 Pydantic 请求验证异常
+   - `generic_exception_handler`: 处理未捕获的通用异常
+   - 所有处理器都返回符合 `ErrorResponse` 模型的 JSON 响应
+
+3. **响应字段映射**
+   ```python
+   # 旧格式（已删除）
+   {
+       "error_code": "TASK_NOT_FOUND",
+       "message": "任务不存在",
+       "details": {...}
+   }
+   
+   # 新格式（标准 ErrorResponse）
+   {
+       "error": "TASK_NOT_FOUND",
+       "message": "任务不存在",
+       "detail": {...},
+       "timestamp": "2026-05-01T10:30:00Z",
+       "path": "/api/v1/tasks/123"
+   }
+   ```
+
+4. **测试验证**
+   - 更新了 `scripts/test_exceptions.py`
+   - 验证所有异常处理器返回的响应符合 `ErrorResponse` 模型
+   - 测试覆盖：自定义异常、验证异常、通用异常
+
+### 测试结果
+
+```
+✅ 所有异常类正常工作
+✅ 异常处理器返回标准 ErrorResponse 格式
+✅ 响应包含 error, message, detail, timestamp, path 字段
+✅ HTTP 状态码正确映射
+```
 
 ---
 
@@ -183,16 +233,12 @@ def get_task_status(task_id: str) -> TaskStatusResponse:
 
 ```python
 from app.schemas import ErrorResponse
+from app.core.exceptions import register_exception_handlers
 
-@app.exception_handler(ValidationError)
-async def validation_exception_handler(request, exc):
-    return JSONResponse(
-        status_code=422,
-        content=ErrorResponse(
-            error="ValidationError",
-            message=str(exc)
-        ).model_dump()
-    )
+# 在 FastAPI 应用启动时注册
+register_exception_handlers(app)
+
+# 所有异常处理器自动返回 ErrorResponse 格式
 ```
 
 ---

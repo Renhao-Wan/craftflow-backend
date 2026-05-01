@@ -7,7 +7,6 @@ from app.core.config import Settings, get_settings, settings
 from app.core.exceptions import (
     CheckpointerError,
     CraftFlowException,
-    ErrorResponse,
     GraphExecutionError,
     LLMProviderError,
     TaskNotFoundError,
@@ -36,6 +35,5 @@ __all__ = [
     "LLMProviderError",
     "ToolExecutionError",
     "ValidationError",
-    "ErrorResponse",
     "register_exception_handlers",
 ]

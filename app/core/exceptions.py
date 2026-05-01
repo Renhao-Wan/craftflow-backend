@@ -4,11 +4,11 @@
 """
 
 from typing import Any
+from datetime import datetime
 
 from fastapi import Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 
 from app.core.logger import logger
 
@@ -151,28 +151,6 @@ class ValidationError(CraftFlowException):
 
 
 # ============================================
-# 错误响应模型
-# ============================================
-
-
-class ErrorResponse(BaseModel):
-    """统一错误响应格式"""
-
-    error_code: str
-    message: str
-    details: dict[str, Any] = {}
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "error_code": "TASK_NOT_FOUND",
-                "message": "任务不存在: abc123",
-                "details": {"task_id": "abc123"},
-            }
-        }
-
-
-# ============================================
 # 全局异常处理器
 # ============================================
 
@@ -187,6 +165,8 @@ async def craftflow_exception_handler(request: Request, exc: CraftFlowException)
     Returns:
         JSON 格式的错误响应
     """
+    from app.schemas.response import ErrorResponse
+    
     logger.error(
         f"业务异常 | 路径: {request.url.path} | "
         f"错误码: {exc.error_code} | 消息: {exc.message} | "
@@ -196,10 +176,12 @@ async def craftflow_exception_handler(request: Request, exc: CraftFlowException)
     return JSONResponse(
         status_code=exc.status_code,
         content=ErrorResponse(
-            error_code=exc.error_code,
+            error=exc.error_code,
             message=exc.message,
-            details=exc.details,
-        ).model_dump(),
+            detail=exc.details,
+            timestamp=datetime.now(),
+            path=str(request.url.path),
+        ).model_dump(mode='json'),
     )
 
 
@@ -215,16 +197,20 @@ async def validation_exception_handler(
     Returns:
         JSON 格式的错误响应
     """
+    from app.schemas.response import ErrorResponse
+    
     errors = exc.errors()
     logger.warning(f"请求验证失败 | 路径: {request.url.path} | 错误: {errors}")
 
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content=ErrorResponse(
-            error_code="REQUEST_VALIDATION_ERROR",
+            error="REQUEST_VALIDATION_ERROR",
             message="请求参数验证失败",
-            details={"errors": errors},
-        ).model_dump(),
+            detail={"errors": errors},
+            timestamp=datetime.now(),
+            path=str(request.url.path),
+        ).model_dump(mode='json'),
     )
 
 
@@ -238,6 +224,8 @@ async def generic_exception_handler(request: Request, exc: Exception) -> JSONRes
     Returns:
         JSON 格式的错误响应
     """
+    from app.schemas.response import ErrorResponse
+    
     logger.exception(
         f"未捕获异常 | 路径: {request.url.path} | 类型: {type(exc).__name__} | " f"消息: {str(exc)}"
     )
@@ -245,10 +233,12 @@ async def generic_exception_handler(request: Request, exc: Exception) -> JSONRes
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content=ErrorResponse(
-            error_code="INTERNAL_SERVER_ERROR",
+            error="INTERNAL_SERVER_ERROR",
             message="服务器内部错误，请稍后重试",
-            details={"exception_type": type(exc).__name__},
-        ).model_dump(),
+            detail={"exception_type": type(exc).__name__},
+            timestamp=datetime.now(),
+            path=str(request.url.path),
+        ).model_dump(mode='json'),
     )
 
 
