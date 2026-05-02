@@ -72,6 +72,36 @@ class Settings(BaseSettings):
     e2b_api_key: str = Field(default="", description="E2B Code Interpreter API 密钥")
 
     # ============================================
+    # 向量数据库配置
+    # ============================================
+    enable_rag: bool = Field(
+        default=False, description="是否启用 RAG（检索增强生成）功能"
+    )
+    vector_db_backend: str = Field(
+        default="pgvector", description="向量数据库后端 (pgvector / chroma)"
+    )
+    chroma_persist_dir: str = Field(
+        default="./chroma_db", description="Chroma 持久化目录"
+    )
+    vector_collection_name: str = Field(
+        default="craftflow_docs", description="向量数据库集合名称"
+    )
+    
+    # 向量模型配置
+    embedding_model: str = Field(
+        default="text-embedding-3-small", description="Embedding 模型名称"
+    )
+    embedding_api_key: str = Field(
+        default="", description="Embedding API 密钥（默认使用 LLM_API_KEY）"
+    )
+    embedding_api_base: str = Field(
+        default="", description="Embedding API 基础 URL（默认使用 LLM_API_BASE）"
+    )
+    embedding_dimensions: int = Field(
+        default=1536, ge=1, le=3072, description="Embedding 向量维度"
+    )
+
+    # ============================================
     # LangSmith 追踪配置
     # ============================================
     langchain_tracing_v2: bool = Field(default=False, description="启用 LangSmith 追踪")
