@@ -19,7 +19,7 @@
 - **后端框架**: Python 3.11+, FastAPI, Pydantic V2
 - **AI 编排**: LangGraph, LangChain
 - **持久化**: PostgreSQL (pgvector), Redis
-- **LLM**: OpenAI / Anthropic / DeepSeek (可配置)
+- **LLM**: OpenAI 格式
 
 ## 快速开始
 

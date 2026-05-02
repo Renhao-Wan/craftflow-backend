@@ -34,11 +34,11 @@
 
 ### 4. app/graph/common/ - 共享抽象层
 
-| 文件路径                              | 职责描述                                            | 依赖模块                                      |
-|-----------------------------------|-------------------------------------------------|-------------------------------------------|
-| `app/graph/common/__init__.py`    | 包标识文件                                           | 无                                         |
-| `app/graph/common/llm_factory.py` | LLM 单例工厂（根据环境变量返回 OpenAI/Anthropic/DeepSeek 实例） | `langchain-openai`, `langchain-anthropic` |
-| `app/graph/common/prompts.py`     | **仅存放通用、跨模块可复用的 Prompt 模板**（如：通用输出格式、Markdown 规范等） | `langchain-core`                          |
+| 文件路径                              | 职责描述                                            | 依赖模块                |
+|-----------------------------------|-------------------------------------------------|---------------------|
+| `app/graph/common/__init__.py`    | 包标识文件                                           | 无                   |
+| `app/graph/common/llm_factory.py` | LLM 单例工厂（根据环境变量返回 OpenAI 实例） | `langchain-openai`  |
+| `app/graph/common/prompts.py`     | **仅存放通用、跨模块可复用的 Prompt 模板**（如：通用输出格式、Markdown 规范等） | `langchain-core`    |
 
 ### 5. app/graph/tools/ - 外部工具链封装
 
@@ -119,7 +119,7 @@
 | **Task 1**  | 项目初始化与配置           | 是    | `.gitignore`, `pyproject.toml`, `.env.example`, `.env.dev`, `README.md`, `langgraph.json`                                  | 1. 创建 Poetry/pip 项目结构<br>2. 定义核心依赖（fastapi, langgraph, langchain, pydantic）<br>3. 配置 .gitignore 忽略敏感文件<br>4. 创建所有目录结构和 __init__.py 文件                                 | 100  | `poetry`, `python-dotenv`                                             |
 | **Task 2**  | 基础设施层实现            | 是    | `app/core/config.py`, `app/core/logger.py`, `app/core/exceptions.py`                                                       | 1. 使用 Pydantic BaseSettings 读取环境变量<br>2. 配置结构化日志（loguru）<br>3. 定义自定义异常类与 FastAPI 异常处理器                                                                                | 150  | `pydantic-settings`, `loguru`                                         |
 | **Task 3**  | 数据模型定义             | 是    | `app/schemas/request.py`, `app/schemas/response.py`                                                                        | 1. 定义 CreationRequest（topic, description）<br>2. 定义 PolishingRequest（content, mode）<br>3. 定义 TaskResponse、TaskStatusResponse                                           | 120  | `pydantic`                                                            |
-| **Task 4**  | LLM 工厂与通用 Prompt   | 否    | `app/graph/common/llm_factory.py`, `app/graph/common/prompts.py`                                                           | 1. 实现单例模式的 LLM 工厂（根据环境变量返回不同 Provider）<br>2. 定义**通用、跨模块可复用**的 Prompt 模板（如：Markdown 输出格式规范、通用角色定义等）                                                                                                                                     | 180  | `langchain-openai`, `langchain-anthropic`, `langchain-core`           |
+| **Task 4**  | LLM 工厂与通用 Prompt   | 是    | `app/graph/common/llm_factory.py`, `app/graph/common/prompts.py`                                                           | 1. 实现单例模式的 LLM 工厂（根据环境变量返回不同 Provider）<br>2. 定义**通用、跨模块可复用**的 Prompt 模板（如：Markdown 输出格式规范、通用角色定义等）                                                                                                                                     | 180  | `langchain-openai`, `langchain-anthropic`, `langchain-core`           |
 | **Task 5**  | 工具链封装              | 否    | `app/graph/tools/search.py`, `app/graph/tools/sandbox.py`, `app/graph/tools/validators.py`, `app/graph/tools/retriever.py` | 1. 封装 TavilySearch 为 @tool<br>2. 封装 E2B CodeInterpreter<br>3. 实现链接验证、可读性计算工具<br>4. 实现本地知识库检索（可选，先占位）                                                                  | 250  | `tavily-python`, `e2b-code-interpreter`, `requests`, `beautifulsoup4` |
 | **Task 6**  | Creation State 定义  | 否    | `app/graph/creation/state.py`                                                                                              | 1. 定义 CreationState TypedDict<br>2. 配置 sections 字段的 Reducer（operator.add）                                                                                             | 50   | `typing`, `langgraph`                                                 |
 | **Task 7**  | Creation Prompts 与节点实现      | 否    | `app/graph/creation/prompts.py`, `app/graph/creation/nodes.py`                                                                                              | 1. **创建 Creation 专属 Prompt 模板**（PlannerNode、WriterNode、ReducerNode）<br>2. PlannerNode：调用 LLM 生成大纲，绑定 TavilySearch 工具<br>3. WriterNode：并发节点，生成单章内容<br>4. ReducerNode：合并章节，润色过渡段                                                               | 350  | `langchain-core`, `app.graph.common`, `app.graph.tools`               |
