@@ -250,12 +250,12 @@ test_settings = Settings(
 
 运行配置验证测试：
 ```bash
-python scripts/test_config.py
+python scripts/check_config.py
 ```
 
 运行异常处理测试：
 ```bash
-python scripts/test_exceptions.py
+python tests/test_exceptions.py
 ```
 
 ---

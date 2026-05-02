@@ -135,7 +135,7 @@
 ### 验证测试
 
 ```bash
-python scripts/test_exceptions.py
+python tests/test_exceptions.py
 ```
 
 所有模型可以正确导入，无语法错误。
