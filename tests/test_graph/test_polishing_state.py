@@ -8,10 +8,10 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from app.graph.polishing.state import (
     DebateRound,
-    DebateState,
     PolishingState,
     ScoreDetail,
 )
+from app.graph.polishing.debate.state import DebateState
 
 
 # ============================================

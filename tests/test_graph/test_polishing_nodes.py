@@ -11,15 +11,18 @@ from langchain_core.messages import AIMessage
 
 from app.graph.polishing.nodes import (
     _extract_json_from_response,
-    author_node,
-    editor_node,
     fact_checker_node,
     formatter_node,
     route_by_mode,
     router_node,
+)
+from app.graph.polishing.debate.nodes import (
+    author_node,
+    editor_node,
     should_continue_debate,
 )
-from app.graph.polishing.state import DebateState, PolishingState
+from app.graph.polishing.debate.state import DebateState
+from app.graph.polishing.state import PolishingState
 
 
 # ============================================
@@ -315,7 +318,7 @@ class TestAuthorNode:
         mock_llm = AsyncMock()
         mock_llm.ainvoke.return_value = mock_response
 
-        with patch("app.graph.polishing.nodes.get_default_llm", return_value=mock_llm):
+        with patch("app.graph.polishing.debate.nodes.get_default_llm", return_value=mock_llm):
             state: DebateState = {
                 "content": "原始内容",
                 "topic": None,
@@ -361,7 +364,7 @@ class TestEditorNode:
         mock_llm = AsyncMock()
         mock_llm.ainvoke.return_value = mock_response
 
-        with patch("app.graph.polishing.nodes.get_editor_llm", return_value=mock_llm):
+        with patch("app.graph.polishing.debate.nodes.get_editor_llm", return_value=mock_llm):
             state: DebateState = {
                 "content": "测试内容",
                 "topic": None,

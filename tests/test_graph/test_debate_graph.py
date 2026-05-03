@@ -9,13 +9,13 @@ from unittest.mock import AsyncMock, patch
 
 from langchain_core.messages import AIMessage
 
-from app.graph.polishing import debate_graph as _debate_module
-from app.graph.polishing.debate_graph import (
+from app.graph.polishing.debate import nodes as _debate_nodes_module
+from app.graph.polishing.debate.builder import _build_debate_graph, get_debate_graph
+from app.graph.polishing.debate.nodes import (
     finalize_debate_node,
-    get_debate_graph,
     increment_iteration_node,
 )
-from app.graph.polishing.state import DebateState
+from app.graph.polishing.debate.state import DebateState
 
 
 # ============================================
@@ -234,10 +234,12 @@ def _rebuild_graph_with_mocks(author_mock, editor_mock):
     """清除缓存并使用 mock 节点重新构建图"""
     get_debate_graph.cache_clear()
     with (
-        patch.object(_debate_module, "author_node", author_mock),
-        patch.object(_debate_module, "editor_node", editor_mock),
+        patch.object(_debate_nodes_module, "author_node", author_mock),
+        patch.object(_debate_nodes_module, "editor_node", editor_mock),
     ):
-        return get_debate_graph()
+        # 直接调用 _build_debate_graph() 绕过 lru_cache，
+        # 因为 from ... import 在模块加载时已绑定函数引用
+        return _build_debate_graph().compile()
 
 
 class TestDebateGraphE2E:
