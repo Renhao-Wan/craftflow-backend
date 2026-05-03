@@ -79,13 +79,6 @@
 }
 ```
 
-### 5. 条件边函数
-
-| 函数名 | 功能 | 返回值 |
-|--------|------|--------|
-| `should_continue_writing` | 判断是否继续撰写章节 | `"writer"` / `"reducer"` |
-| `should_end_or_continue` | 判断是否结束执行 | `"end"` / `"continue"` |
-
 ## 测试覆盖
 
 创建了 [test_creation_nodes.py](tests/test_graph/test_creation_nodes.py)，包含 15 个测试用例：
@@ -93,7 +86,6 @@
 | 测试类 | 测试数量 | 覆盖内容 |
 |--------|----------|----------|
 | `TestExtractJsonFromResponse` | 4 | JSON 解析的各种场景 |
-| `TestConditionalEdges` | 5 | 条件边函数的分支逻辑 |
 | `TestPlannerNode` | 2 | 大纲生成成功和失败场景 |
 | `TestWriterNode` | 2 | 章节撰写和边界情况 |
 | `TestReducerNode` | 2 | 文章合并和空章节处理 |

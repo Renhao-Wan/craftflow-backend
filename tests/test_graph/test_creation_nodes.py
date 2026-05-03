@@ -13,8 +13,6 @@ from app.graph.creation.nodes import (
     _extract_json_from_response,
     planner_node,
     reducer_node,
-    should_continue_writing,
-    should_end_or_continue,
     writer_node,
 )
 from app.graph.creation.state import CreationState
@@ -62,94 +60,6 @@ class TestExtractJsonFromResponse:
         text = "这不是 JSON 格式的内容"
         result = _extract_json_from_response(text)
         assert result is None
-
-
-# ============================================
-# 条件边函数测试
-# ============================================
-
-
-class TestConditionalEdges:
-    """测试条件边函数"""
-
-    def test_should_continue_writing_when_sections_incomplete(self):
-        """测试章节未完成时应该继续写作"""
-        state: CreationState = {
-            "topic": "测试主题",
-            "description": None,
-            "outline": [
-                {"title": "第一章", "summary": "概述"},
-                {"title": "第二章", "summary": "详情"},
-            ],
-            "sections": [
-                {"title": "第一章", "content": "内容", "index": 0},
-            ],
-            "final_draft": None,
-            "messages": [],
-            "current_node": "WriterNode",
-            "error": None,
-        }
-        assert should_continue_writing(state) == "writer"
-
-    def test_should_continue_writing_when_sections_complete(self):
-        """测试章节完成时应该进入 reducer"""
-        state: CreationState = {
-            "topic": "测试主题",
-            "description": None,
-            "outline": [
-                {"title": "第一章", "summary": "概述"},
-            ],
-            "sections": [
-                {"title": "第一章", "content": "内容", "index": 0},
-            ],
-            "final_draft": None,
-            "messages": [],
-            "current_node": "WriterNode",
-            "error": None,
-        }
-        assert should_continue_writing(state) == "reducer"
-
-    def test_should_end_when_error(self):
-        """测试有错误时应该结束"""
-        state: CreationState = {
-            "topic": "测试主题",
-            "description": None,
-            "outline": [],
-            "sections": [],
-            "final_draft": None,
-            "messages": [],
-            "current_node": "WriterNode",
-            "error": "发生错误",
-        }
-        assert should_end_or_continue(state) == "end"
-
-    def test_should_end_when_final_draft_exists(self):
-        """测试有最终草稿时应该结束"""
-        state: CreationState = {
-            "topic": "测试主题",
-            "description": None,
-            "outline": [],
-            "sections": [],
-            "final_draft": "# 完整文章",
-            "messages": [],
-            "current_node": "ReducerNode",
-            "error": None,
-        }
-        assert should_end_or_continue(state) == "end"
-
-    def test_should_continue_when_no_draft_no_error(self):
-        """测试没有草稿和错误时应该继续"""
-        state: CreationState = {
-            "topic": "测试主题",
-            "description": None,
-            "outline": [],
-            "sections": [],
-            "final_draft": None,
-            "messages": [],
-            "current_node": "PlannerNode",
-            "error": None,
-        }
-        assert should_end_or_continue(state) == "continue"
 
 
 # ============================================
