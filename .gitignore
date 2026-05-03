@@ -37,6 +37,8 @@ env/
 *~
 .DS_Store
 
+CLAUDE.md
+
 # Environment Variables
 .env
 .env.dev
