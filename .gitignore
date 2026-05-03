@@ -38,6 +38,7 @@ env/
 .DS_Store
 
 CLAUDE.md
+.claude/**
 
 # Environment Variables
 .env
