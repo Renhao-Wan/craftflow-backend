@@ -40,7 +40,7 @@ def _make_polishing_state(mode: int = 2, **overrides) -> PolishingState:
 
 
 def _rebuild_graph(**node_mocks):
-    """清除缓存并使用 mock 节点重新构建图
+    """使用 mock 节点重新构建图
 
     builder.py 使用模块引用（_nodes.router_node 等），
     所以只需 patch nodes 模块即可。debate_node 定义在 builder.py 中。
@@ -50,8 +50,6 @@ def _rebuild_graph(**node_mocks):
             支持的键: router_node, formatter_node, fact_checker_node (nodes.py)
                       debate_node (builder.py)
     """
-    get_polishing_graph.cache_clear()
-
     _builder_only = {"debate_node"}
 
     patches = []
@@ -113,13 +111,6 @@ class TestPolishingGraphStructure:
 
         assert graph is not None
         assert hasattr(graph, "ainvoke")
-
-    def test_graph_is_singleton(self):
-        """测试图是单例"""
-        graph1 = get_polishing_graph()
-        graph2 = get_polishing_graph()
-
-        assert graph1 is graph2
 
     def test_graph_has_required_nodes(self):
         """测试图包含所有必要节点"""

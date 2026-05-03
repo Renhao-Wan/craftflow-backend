@@ -6,11 +6,14 @@
 3. WriterNode 并发撰写章节（Map-Reduce 模式）
 4. ReducerNode 合并章节并润色
 
-使用单例模式确保全局只有一个编译后的 Graph 实例。
+图结构构建与编译分离：
+- build_creation_graph() 构建未编译的 StateGraph
+- get_creation_graph(checkpointer) 编译图并注入 Checkpointer
 """
 
-from functools import lru_cache
+from typing import Optional
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
@@ -234,25 +237,30 @@ def build_creation_graph() -> StateGraph:
     return graph
 
 
-@lru_cache
-def get_creation_graph() -> StateGraph:
-    """获取 Creation Graph 单例
+def get_creation_graph(
+    checkpointer: Optional[BaseCheckpointSaver] = None,
+) -> StateGraph:
+    """编译并返回 Creation Graph
 
-    使用 lru_cache 确保全局只有一个编译后的 Graph 实例。
+    每次调用都会重新编译图。服务层应缓存返回的编译后图实例。
+    编译时配置 interrupt_before=["outline_confirmation"] 以支持 HITL。
+
+    Args:
+        checkpointer: 可选的 Checkpointer 实例，用于状态持久化和中断恢复。
+            传入 None 时图不支持状态持久化（仅适用于测试场景）。
 
     Returns:
         StateGraph: 编译后的 Creation Graph
     """
     graph = build_creation_graph()
 
-    # 编译图，配置 interrupt_before 在大纲确认点暂停
     compiled_graph = graph.compile(
+        checkpointer=checkpointer,
         interrupt_before=["outline_confirmation"],
     )
 
-    logger.info("Creation Graph 编译完成，已配置 interrupt_before")
+    logger.info(
+        f"Creation Graph 编译完成 - "
+        f"checkpointer: {'已注入' if checkpointer else '未注入'}"
+    )
     return compiled_graph
-
-
-# 导出便捷函数
-creation_graph = get_creation_graph

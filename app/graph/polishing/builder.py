@@ -13,11 +13,16 @@
 
 Debate Subgraph 作为独立节点嵌入主图，通过 debate_node 包装
 实现 PolishingState ↔ DebateState 的状态映射，保持两层状态定义分离。
+
+图结构构建与编译分离：
+- _build_polishing_graph() 构建未编译的 StateGraph
+- get_polishing_graph(checkpointer) 编译图并注入 Checkpointer
 """
 
-from functools import lru_cache
+from typing import Optional
 
 from langchain_core.messages import AIMessage
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, StateGraph
 
 from app.core.logger import get_logger
@@ -159,15 +164,23 @@ def _build_polishing_graph() -> StateGraph:
     return graph
 
 
-@lru_cache(maxsize=1)
-def get_polishing_graph():
-    """获取编译后的 Polishing Graph 单例
+def get_polishing_graph(
+    checkpointer: Optional[BaseCheckpointSaver] = None,
+):
+    """编译并返回 Polishing Graph
 
-    使用 lru_cache 确保全局只有一个编译后的图实例。
+    每次调用都会重新编译图。服务层应缓存返回的编译后图实例。
+
+    Args:
+        checkpointer: 可选的 Checkpointer 实例，用于状态持久化。
+            传入 None 时图不支持状态持久化（仅适用于测试场景）。
 
     Returns:
         CompiledStateGraph: 编译后的 Polishing Graph
     """
-    logger.info("编译 Polishing Graph")
+    logger.info(
+        f"编译 Polishing Graph - "
+        f"checkpointer: {'已注入' if checkpointer else '未注入'}"
+    )
     graph = _build_polishing_graph()
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)

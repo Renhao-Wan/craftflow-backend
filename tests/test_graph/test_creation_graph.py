@@ -236,22 +236,8 @@ class TestCreationGraph:
         assert "writer" in nodes
         assert "reducer" in nodes
 
-    def test_get_creation_graph_singleton(self):
-        """测试 Creation Graph 单例模式"""
-        # 清除缓存
-        get_creation_graph.cache_clear()
-
-        graph1 = get_creation_graph()
-        graph2 = get_creation_graph()
-
-        # 应该返回同一个实例
-        assert graph1 is graph2
-
     def test_creation_graph_compiled(self):
         """测试 Creation Graph 已编译"""
-        # 清除缓存
-        get_creation_graph.cache_clear()
-
         graph = get_creation_graph()
 
         # 编译后的图应该有 invoke 方法
@@ -272,9 +258,6 @@ class TestCreationGraphIntegration:
     @pytest.mark.asyncio
     async def test_graph_initial_state(self):
         """测试图的初始状态"""
-        # 清除缓存
-        get_creation_graph.cache_clear()
-
         # Mock LLM
         mock_response = MagicMock()
         mock_response.content = '{"outline": [{"title": "引言", "summary": "介绍"}, {"title": "总结", "summary": "归纳"}]}'
