@@ -264,3 +264,15 @@ def get_creation_graph(
         f"checkpointer: {'已注入' if checkpointer else '未注入'}"
     )
     return compiled_graph
+
+
+def build_compiled_creation_graph() -> StateGraph:
+    """构建并编译 Creation Graph（无参数版本，供 LangGraph CLI 使用）
+
+    LangGraph CLI 要求图入口为无参数可调用对象。
+    该函数内部构建并编译图，不注入 checkpointer（由 CLI 运行时自动管理）。
+
+    Returns:
+        StateGraph: 编译后的 Creation Graph
+    """
+    return get_creation_graph(checkpointer=None)

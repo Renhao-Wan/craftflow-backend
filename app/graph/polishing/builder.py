@@ -184,3 +184,15 @@ def get_polishing_graph(
     )
     graph = _build_polishing_graph()
     return graph.compile(checkpointer=checkpointer)
+
+
+def build_compiled_polishing_graph():
+    """构建并编译 Polishing Graph（无参数版本，供 LangGraph CLI 使用）
+
+    LangGraph CLI 要求图入口为无参数可调用对象。
+    该函数内部构建并编译图，不注入 checkpointer（由 CLI 运行时自动管理）。
+
+    Returns:
+        CompiledStateGraph: 编译后的 Polishing Graph
+    """
+    return get_polishing_graph(checkpointer=None)

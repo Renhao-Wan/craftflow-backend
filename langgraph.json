@@ -1,8 +1,8 @@
 {
   "dependencies": ["."],
   "graphs": {
-    "creation_graph": "./app/graph/creation/builder.py:build_creation_graph",
-    "polishing_graph": "./app/graph/polishing/builder.py:build_polishing_graph"
+    "creation_graph": "./app/graph/creation/builder.py:build_compiled_creation_graph",
+    "polishing_graph": "./app/graph/polishing/builder.py:build_compiled_polishing_graph"
   },
   "env": ".env.dev"
 }
