@@ -8,7 +8,6 @@ from app.schemas.request import (
     CreationRequest,
     PolishingRequest,
     ResumeRequest,
-    TaskQueryParams,
 )
 
 from app.schemas.response import (
@@ -24,7 +23,6 @@ __all__ = [
     "CreationRequest",
     "PolishingRequest",
     "ResumeRequest",
-    "TaskQueryParams",
     # 响应模型
     "TaskResponse",
     "TaskStatusResponse",

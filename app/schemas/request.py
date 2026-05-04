@@ -142,20 +142,3 @@ class ResumeRequest(BaseModel):
                 }
             }
         }
-
-
-class TaskQueryParams(BaseModel):
-    """
-    任务查询参数模型
-    
-    用于 GET /api/v1/tasks/{task_id} 接口的查询参数
-    """
-    include_state: bool = Field(
-        default=False,
-        description="是否返回完整的图状态数据"
-    )
-    
-    include_history: bool = Field(
-        default=False,
-        description="是否返回执行历史记录"
-    )
