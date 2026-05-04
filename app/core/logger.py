@@ -12,7 +12,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from app.core.config import settings
+from app.core.config import BASE_DIR, settings
 
 
 def setup_logger() -> None:
@@ -25,8 +25,8 @@ def setup_logger() -> None:
     # 移除默认的 handler
     logger.remove()
 
-    # 日志目录
-    log_dir = Path("logs")
+    # 日志目录（基于项目根目录，不依赖进程工作目录）
+    log_dir = BASE_DIR / "logs"
     log_dir.mkdir(exist_ok=True)
 
     # ============================================

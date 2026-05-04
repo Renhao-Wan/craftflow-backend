@@ -5,10 +5,15 @@
 """
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# 项目根目录：craftflow-backend/
+# 基于此文件路径推导，不依赖进程工作目录
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 
 class Settings(BaseSettings):
@@ -19,7 +24,7 @@ class Settings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_file=".env.dev",
+        env_file=str(BASE_DIR / ".env.dev"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",  # 忽略未定义的环境变量
