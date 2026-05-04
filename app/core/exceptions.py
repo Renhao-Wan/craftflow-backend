@@ -185,6 +185,35 @@ async def craftflow_exception_handler(request: Request, exc: CraftFlowException)
     )
 
 
+def _clean_validation_errors(errors: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """清理验证错误中的不可序列化对象
+
+    Pydantic 验证错误的 ctx 字段可能包含 Exception 对象，
+    无法直接 JSON 序列化。此函数将其转换为字符串。
+
+    Args:
+        errors: Pydantic 原始错误列表
+
+    Returns:
+        清理后的错误列表
+    """
+    cleaned = []
+    for error in errors:
+        clean_error = {}
+        for key, value in error.items():
+            if key == "ctx" and isinstance(value, dict):
+                clean_error[key] = {
+                    k: str(v) if isinstance(v, Exception) else v
+                    for k, v in value.items()
+                }
+            elif isinstance(value, Exception):
+                clean_error[key] = str(value)
+            else:
+                clean_error[key] = value
+        cleaned.append(clean_error)
+    return cleaned
+
+
 async def validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
@@ -198,8 +227,8 @@ async def validation_exception_handler(
         JSON 格式的错误响应
     """
     from app.schemas.response import ErrorResponse
-    
-    errors = exc.errors()
+
+    errors = _clean_validation_errors(exc.errors())
     logger.warning(f"请求验证失败 | 路径: {request.url.path} | 错误: {errors}")
 
     return JSONResponse(
