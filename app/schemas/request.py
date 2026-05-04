@@ -30,11 +30,6 @@ class CreationRequest(BaseModel):
         examples=["请重点关注容器化部署和服务治理"]
     )
     
-    hitl_enabled: bool = Field(
-        default=True,
-        description="是否启用人机协同（HITL），默认为 True"
-    )
-    
     @field_validator("topic")
     @classmethod
     def validate_topic(cls, v: str) -> str:
@@ -47,8 +42,7 @@ class CreationRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "topic": "微服务架构演进",
-                "description": "请重点关注容器化部署和服务治理",
-                "hitl_enabled": True
+                "description": "请重点关注容器化部署和服务治理"
             }
         }
 

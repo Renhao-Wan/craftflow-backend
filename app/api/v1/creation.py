@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Query
 
 from app.api.dependencies import get_creation_service
 from app.schemas.request import CreationRequest, ResumeRequest
-from app.schemas.response import ResumeResponse, TaskResponse, TaskStatusResponse
+from app.schemas.response import TaskResponse, TaskStatusResponse
 from app.services.creation_svc import CreationService
 
 router = APIRouter()
@@ -69,7 +69,7 @@ async def get_task_status(
 
 @router.post(
     "/tasks/{task_id}/resume",
-    response_model=ResumeResponse,
+    response_model=TaskResponse,
     summary="恢复中断的任务",
     description="在 HITL 中断点（大纲确认）恢复任务执行。支持确认或更新大纲。",
     responses={
@@ -83,21 +83,15 @@ async def resume_task(
     task_id: str,
     request: ResumeRequest,
     service: CreationService = Depends(get_creation_service),
-) -> ResumeResponse:
+) -> TaskResponse:
     """恢复被中断的创作任务
 
     支持的动作：
     - confirm_outline: 确认当前大纲，继续执行
     - update_outline: 更新大纲后继续执行（需在 data 中提供新大纲）
     """
-    result = await service.resume_task(
+    return await service.resume_task(
         task_id=task_id,
         action=request.action,
         data=request.data,
-    )
-
-    return ResumeResponse(
-        task_id=result.task_id,
-        status=result.status,
-        message=result.message or "任务已恢复执行",
     )

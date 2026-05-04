@@ -23,20 +23,19 @@ def test_creation_request():
     req = CreationRequest(
         topic="微服务架构演进",
         description="请重点关注容器化部署",
-        hitl_enabled=True
     )
     print(f"✓ 正常创建: {req.topic}")
-    
+
     # 测试验证器：空白主题
     try:
         CreationRequest(topic="   ", description="测试")
         print("✗ 应该抛出验证错误")
     except ValidationError as e:
         print(f"✓ 空白主题验证: {e.errors()[0]['msg']}")
-    
+
     # 测试默认值
     req2 = CreationRequest(topic="测试主题")
-    print(f"✓ 默认值: description='{req2.description}', hitl_enabled={req2.hitl_enabled}")
+    print(f"✓ 默认值: description='{req2.description}'")
 
 
 def test_polishing_request():

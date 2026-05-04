@@ -14,8 +14,6 @@ from app.schemas.response import (
     TaskResponse,
     TaskStatusResponse,
     ErrorResponse,
-    ResumeResponse,
-    HealthResponse,
 )
 
 __all__ = [
@@ -27,6 +25,4 @@ __all__ = [
     "TaskResponse",
     "TaskStatusResponse",
     "ErrorResponse",
-    "ResumeResponse",
-    "HealthResponse",
 ]
