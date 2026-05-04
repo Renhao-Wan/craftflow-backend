@@ -16,6 +16,7 @@ from typing import Any, Optional
 from uuid import uuid4
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.errors import GraphInterrupt
 
 from app.core.exceptions import GraphExecutionError, TaskNotFoundError
 from app.core.logger import get_logger
@@ -246,6 +247,128 @@ class PolishingService:
             logger.warning(f"获取图状态失败 - task_id: {task_id}, error: {str(e)}")
 
         return response
+
+    # ============================================
+    # WebSocket 流式执行方法
+    # ============================================
+
+    async def start_task_streaming(
+        self,
+        content: str,
+        mode: int,
+        broadcaster: Any,
+        client_id: str,
+        request_id: Optional[str] = None,
+    ) -> None:
+        """流式执行润色任务（WebSocket 推送进度）
+
+        使用 astream_events 监听节点完成事件，在关键节点手动推送进度。
+        Polishing Graph 无 HITL 中断，任务直接执行至完成。
+
+        Args:
+            content: 待润色的 Markdown 内容
+            mode: 润色模式（1=极速格式化, 2=专家对抗审查, 3=事实核查）
+            broadcaster: 任务广播服务
+            client_id: 客户端 ID
+            request_id: 请求 ID（可选，用于请求-响应配对）
+        """
+        task_id = self._generate_task_id()
+        thread_id = task_id
+
+        self._save_task(
+            task_id=task_id,
+            thread_id=thread_id,
+            status="running",
+            request_data={"content_length": len(content), "mode": mode},
+        )
+
+        # 自动订阅
+        broadcaster.subscribe(client_id, task_id)
+
+        # 通知客户端任务已创建
+        await broadcaster.send_to(
+            client_id,
+            {
+                "type": "task_created",
+                "requestId": request_id,
+                "taskId": task_id,
+                "status": "running",
+                "createdAt": str(self._tasks[task_id]["created_at"]),
+            },
+        )
+
+        initial_state = {
+            "content": content,
+            "mode": mode,
+            "current_node": None,
+            "error": None,
+            "formatted_content": None,
+            "fact_check_result": None,
+            "debate_history": [],
+            "final_content": None,
+            "scores": [],
+            "overall_score": None,
+            "messages": [],
+        }
+
+        config = self._build_config(thread_id)
+        graph = self._get_graph()
+
+        mode_name = MODE_NAMES.get(mode, f"模式{mode}")
+        key_nodes = {"router", "formatter", "debate", "fact_checker"}
+
+        try:
+            logger.info(f"润色任务流式启动 - task_id: {task_id}, mode: {mode} ({mode_name})")
+
+            final_state = None
+            async for event in graph.astream_events(initial_state, config, version="v2"):
+                if event["event"] == "on_chain_end":
+                    node_name = event.get("name", "")
+                    if node_name in key_nodes:
+                        output = event.get("data", {}).get("output", {})
+                        if isinstance(output, dict):
+                            current_node = output.get("current_node", node_name)
+                            progress = self._calculate_progress(output, "running")
+                            await broadcaster.broadcast_update(
+                                task_id,
+                                {
+                                    "status": "running",
+                                    "currentNode": current_node,
+                                    "progress": progress,
+                                },
+                            )
+
+                    elif event.get("name") == "__end__":
+                        final_state = event.get("data", {}).get("output", {})
+
+            # 正常返回 = 图已完成
+            self._update_task(task_id, status="completed")
+            logger.info(f"润色任务流式完成 - task_id: {task_id}")
+
+            result = self._extract_result(final_state or {})
+            await broadcaster.broadcast_result(
+                task_id, result or "", self._tasks[task_id]["created_at"],
+            )
+
+        except GraphInterrupt:
+            # Polishing Graph 设计上无 HITL 中断，防御性处理
+            self._update_task(task_id, status="interrupted")
+            logger.warning(f"润色任务意外中断 - task_id: {task_id}")
+
+            snapshot = await graph.aget_state(config)
+            graph_state = snapshot.values if snapshot else {}
+            await broadcaster.broadcast_update(
+                task_id,
+                {
+                    "status": "interrupted",
+                    "progress": self._calculate_progress(graph_state, "interrupted"),
+                },
+            )
+
+        except Exception as e:
+            self._update_task(task_id, status="failed", error=str(e))
+            logger.error(f"润色任务流式失败 - task_id: {task_id}, error: {e}")
+            await broadcaster.broadcast_error(task_id, str(e))
 
     # ============================================
     # 内部辅助方法

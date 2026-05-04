@@ -320,6 +320,197 @@ class CreationService:
         return response
 
     # ============================================
+    # WebSocket 流式执行方法
+    # ============================================
+
+    async def start_task_streaming(
+        self,
+        topic: str,
+        description: Optional[str],
+        broadcaster: Any,
+        client_id: str,
+        request_id: Optional[str] = None,
+    ) -> None:
+        """流式执行创作任务（WebSocket 推送进度）
+
+        使用 astream_events 监听节点完成事件，在关键节点手动推送进度。
+        """
+        task_id = self._generate_task_id()
+        thread_id = task_id
+
+        self._save_task(
+            task_id=task_id,
+            thread_id=thread_id,
+            status="running",
+            request_data={"topic": topic, "description": description},
+        )
+
+        # 自动订阅
+        broadcaster.subscribe(client_id, task_id)
+
+        # 通知客户端任务已创建
+        await broadcaster.send_to(
+            client_id,
+            {
+                "type": "task_created",
+                "requestId": request_id,
+                "taskId": task_id,
+                "status": "running",
+                "createdAt": str(self._tasks[task_id]["created_at"]),
+            },
+        )
+
+        initial_state = {
+            "topic": topic,
+            "description": description,
+            "outline": [],
+            "sections": [],
+            "final_draft": None,
+            "messages": [],
+            "current_node": None,
+            "error": None,
+        }
+
+        config = self._build_config(thread_id)
+        graph = self._get_graph()
+
+        # 关键节点列表
+        key_nodes = {"planner", "writer", "reducer"}
+
+        try:
+            logger.info(f"创作任务流式启动 - task_id: {task_id}, topic: {topic}")
+
+            final_state = None
+            async for event in graph.astream_events(initial_state, config, version="v2"):
+                if event["event"] == "on_chain_end":
+                    node_name = event.get("name", "")
+                    if node_name in key_nodes:
+                        # 从事件中获取最新状态
+                        output = event.get("data", {}).get("output", {})
+                        if isinstance(output, dict):
+                            current_node = output.get("current_node", node_name)
+                            progress = self._calculate_progress(output, "running")
+                            await broadcaster.broadcast_update(
+                                task_id,
+                                {
+                                    "status": "running",
+                                    "currentNode": current_node,
+                                    "progress": progress,
+                                },
+                            )
+
+                elif event["event"] == "on_chain_end" and event.get("name") == "__end__":
+                    final_state = event.get("data", {}).get("output", {})
+
+            # ainvoke 正常返回（无中断）= 图已完成
+            self._update_task(task_id, status="completed")
+            logger.info(f"创作任务流式完成 - task_id: {task_id}")
+
+            result = (final_state or {}).get("final_draft", "")
+            await broadcaster.broadcast_result(
+                task_id, result, self._tasks[task_id]["created_at"],
+            )
+
+        except GraphInterrupt:
+            self._update_task(task_id, status="interrupted")
+            logger.info(f"创作任务流式暂停（大纲待确认）- task_id: {task_id}")
+
+            # 获取大纲数据用于推送
+            snapshot = await graph.aget_state(config)
+            graph_state = snapshot.values if snapshot else {}
+            outline_data = None
+            raw_outline = graph_state.get("outline")
+            if raw_outline:
+                outline_data = [
+                    {"title": item.title, "summary": item.summary}
+                    for item in raw_outline
+                ]
+
+            await broadcaster.broadcast_update(
+                task_id,
+                {
+                    "status": "interrupted",
+                    "awaiting": "outline_confirmation",
+                    "data": {"outline": outline_data} if outline_data else None,
+                    "progress": self._calculate_progress(graph_state, "interrupted"),
+                },
+            )
+
+        except Exception as e:
+            self._update_task(task_id, status="failed", error=str(e))
+            logger.error(f"创作任务流式失败 - task_id: {task_id}, error: {e}")
+            await broadcaster.broadcast_error(task_id, str(e))
+
+    async def resume_task_streaming(
+        self,
+        task_id: str,
+        action: str,
+        data: Optional[dict[str, Any]],
+        broadcaster: Any,
+        client_id: str,
+        request_id: Optional[str] = None,
+    ) -> None:
+        """流式恢复被中断的创作任务（WebSocket 推送进度）"""
+        task = self._tasks.get(task_id)
+        if task is None:
+            await broadcaster.send_to(
+                client_id,
+                {"type": "error", "requestId": request_id, "code": "TASK_NOT_FOUND", "message": f"任务不存在: {task_id}"},
+            )
+            return
+
+        thread_id = task["thread_id"]
+        config = self._build_config(thread_id)
+        graph = self._get_graph()
+
+        # 自动订阅
+        broadcaster.subscribe(client_id, task_id)
+
+        key_nodes = {"planner", "writer", "reducer"}
+
+        try:
+            logger.info(f"恢复创作任务流式执行 - task_id: {task_id}, action: {action}")
+
+            if action == "update_outline" and data and "outline" in data:
+                await graph.aupdate_state(config, {"outline": data["outline"]})
+
+            await broadcaster.broadcast_update(
+                task_id, {"status": "running", "currentNode": "outline_confirmation", "progress": 30.0},
+            )
+
+            final_state = None
+            async for event in graph.astream_events(Command(resume=True), config, version="v2"):
+                if event["event"] == "on_chain_end":
+                    node_name = event.get("name", "")
+                    if node_name in key_nodes:
+                        output = event.get("data", {}).get("output", {})
+                        if isinstance(output, dict):
+                            progress = self._calculate_progress(output, "running")
+                            await broadcaster.broadcast_update(
+                                task_id,
+                                {"status": "running", "currentNode": node_name, "progress": progress},
+                            )
+
+                elif event["event"] == "on_chain_end" and event.get("name") == "__end__":
+                    final_state = event.get("data", {}).get("output", {})
+
+            self._update_task(task_id, status="completed")
+            logger.info(f"创作任务恢复流式完成 - task_id: {task_id}")
+
+            result = (final_state or {}).get("final_draft", "")
+            await broadcaster.broadcast_result(task_id, result, task["created_at"])
+
+        except GraphInterrupt:
+            self._update_task(task_id, status="interrupted")
+            logger.warning(f"创作任务再次中断 - task_id: {task_id}")
+            await broadcaster.broadcast_update(task_id, {"status": "interrupted", "awaiting": "outline_confirmation"})
+
+        except Exception as e:
+            self._update_task(task_id, status="failed", error=str(e))
+            logger.error(f"创作任务恢复流式失败 - task_id: {task_id}, error: {e}")
+            await broadcaster.broadcast_error(task_id, str(e))
+
+    # ============================================
     # 内部辅助方法
     # ============================================
 
