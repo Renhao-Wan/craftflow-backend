@@ -16,8 +16,6 @@ from typing import Any, Optional
 from uuid import uuid4
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
-from langgraph.errors import GraphInterrupt
-
 from app.core.exceptions import GraphExecutionError, TaskNotFoundError
 from app.core.logger import get_logger
 from app.graph.polishing.builder import get_polishing_graph
@@ -30,6 +28,14 @@ MODE_NAMES = {
     1: "极速格式化",
     2: "专家对抗审查",
     3: "事实核查",
+}
+
+# 节点中文标签映射（前端展示用）
+NODE_LABELS = {
+    "router": "路由决策",
+    "formatter": "极速格式化",
+    "debate": "专家对抗审查",
+    "fact_checker": "事实核查",
 }
 
 
@@ -315,54 +321,44 @@ class PolishingService:
         graph = self._get_graph()
 
         mode_name = MODE_NAMES.get(mode, f"模式{mode}")
-        key_nodes = {"router", "formatter", "debate", "fact_checker"}
 
         try:
             logger.info(f"润色任务流式启动 - task_id: {task_id}, mode: {mode} ({mode_name})")
 
-            final_state = None
-            async for event in graph.astream_events(initial_state, config, version="v2"):
-                if event["event"] == "on_chain_end":
-                    node_name = event.get("name", "")
-                    if node_name in key_nodes:
-                        output = event.get("data", {}).get("output", {})
-                        if isinstance(output, dict):
-                            current_node = output.get("current_node", node_name)
-                            progress = self._calculate_progress(output, "running")
-                            await broadcaster.broadcast_update(
-                                task_id,
-                                {
-                                    "status": "running",
-                                    "currentNode": current_node,
-                                    "progress": progress,
-                                },
-                            )
+            final_state: dict = {}
+            async for node_output in graph.astream(initial_state, config):
+                # node_output: {"node_name": {节点输出的增量字典}}
+                for node_name, partial in node_output.items():
+                    if node_name == "__end__":
+                        final_state = partial if isinstance(partial, dict) else {}
+                        continue
 
-                    elif event.get("name") == "__end__":
-                        final_state = event.get("data", {}).get("output", {})
+                    if not isinstance(partial, dict):
+                        continue
+
+                    current_node = partial.get("current_node", node_name)
+                    label = NODE_LABELS.get(current_node, current_node)
+                    progress = self._calculate_progress(partial, "running")
+
+                    await broadcaster.broadcast_update(
+                        task_id,
+                        {
+                            "status": "running",
+                            "currentNode": current_node,
+                            "currentNodeLabel": label,
+                            "progress": progress,
+                        },
+                    )
+
+                    logger.debug(f"节点完成 - {node_name} ({label}), progress: {progress}")
 
             # 正常返回 = 图已完成
             self._update_task(task_id, status="completed")
             logger.info(f"润色任务流式完成 - task_id: {task_id}")
 
-            result = self._extract_result(final_state or {})
+            result = self._extract_result(final_state)
             await broadcaster.broadcast_result(
                 task_id, result or "", self._tasks[task_id]["created_at"],
-            )
-
-        except GraphInterrupt:
-            # Polishing Graph 设计上无 HITL 中断，防御性处理
-            self._update_task(task_id, status="interrupted")
-            logger.warning(f"润色任务意外中断 - task_id: {task_id}")
-
-            snapshot = await graph.aget_state(config)
-            graph_state = snapshot.values if snapshot else {}
-            await broadcaster.broadcast_update(
-                task_id,
-                {
-                    "status": "interrupted",
-                    "progress": self._calculate_progress(graph_state, "interrupted"),
-                },
             )
 
         except Exception as e:

@@ -27,6 +27,15 @@ from app.schemas.response import TaskResponse, TaskStatusResponse
 
 logger = get_logger(__name__)
 
+# 节点中文标签映射（前端展示用）
+NODE_LABELS = {
+    "planner": "生成大纲",
+    "outline_confirmation": "大纲确认",
+    "fan_out": "章节分配",
+    "writer": "撰写章节",
+    "reducer": "合并润色",
+}
+
 
 class CreationService:
     """Creation 业务服务
@@ -333,7 +342,7 @@ class CreationService:
     ) -> None:
         """流式执行创作任务（WebSocket 推送进度）
 
-        使用 astream_events 监听节点完成事件，在关键节点手动推送进度。
+        使用 LangGraph astream() 逐节点 yield 状态更新，在关键节点手动推送进度。
         """
         task_id = self._generate_task_id()
         thread_id = task_id
@@ -374,41 +383,43 @@ class CreationService:
         config = self._build_config(thread_id)
         graph = self._get_graph()
 
-        # 关键节点列表
-        key_nodes = {"planner", "writer", "reducer"}
-
         try:
             logger.info(f"创作任务流式启动 - task_id: {task_id}, topic: {topic}")
 
-            final_state = None
-            async for event in graph.astream_events(initial_state, config, version="v2"):
-                if event["event"] == "on_chain_end":
-                    node_name = event.get("name", "")
-                    if node_name in key_nodes:
-                        # 从事件中获取最新状态
-                        output = event.get("data", {}).get("output", {})
-                        if isinstance(output, dict):
-                            current_node = output.get("current_node", node_name)
-                            progress = self._calculate_progress(output, "running")
-                            await broadcaster.broadcast_update(
-                                task_id,
-                                {
-                                    "status": "running",
-                                    "currentNode": current_node,
-                                    "progress": progress,
-                                },
-                            )
+            final_state: dict = {}
+            async for node_output in graph.astream(initial_state, config):
+                # node_output: {"node_name": {节点输出的增量字典}}
+                for node_name, partial in node_output.items():
+                    if node_name == "__end__":
+                        final_state = partial if isinstance(partial, dict) else {}
+                        continue
 
-                elif event["event"] == "on_chain_end" and event.get("name") == "__end__":
-                    final_state = event.get("data", {}).get("output", {})
+                    if not isinstance(partial, dict):
+                        continue
 
-            # ainvoke 正常返回（无中断）= 图已完成
+                    current_node = partial.get("current_node", node_name)
+                    label = NODE_LABELS.get(current_node, current_node)
+                    progress = self._calculate_progress(partial, "running")
+
+                    await broadcaster.broadcast_update(
+                        task_id,
+                        {
+                            "status": "running",
+                            "currentNode": current_node,
+                            "currentNodeLabel": label,
+                            "progress": progress,
+                        },
+                    )
+
+                    logger.debug(f"节点完成 - {node_name} ({label}), progress: {progress}")
+
+            # 正常返回 = 图已完成
             self._update_task(task_id, status="completed")
             logger.info(f"创作任务流式完成 - task_id: {task_id}")
 
-            result = (final_state or {}).get("final_draft", "")
+            result = final_state.get("final_draft", "")
             await broadcaster.broadcast_result(
-                task_id, result, self._tasks[task_id]["created_at"],
+                task_id, result or "", self._tasks[task_id]["created_at"],
             )
 
         except GraphInterrupt:
@@ -430,6 +441,8 @@ class CreationService:
                 task_id,
                 {
                     "status": "interrupted",
+                    "currentNode": "outline_confirmation",
+                    "currentNodeLabel": NODE_LABELS["outline_confirmation"],
                     "awaiting": "outline_confirmation",
                     "data": {"outline": outline_data} if outline_data else None,
                     "progress": self._calculate_progress(graph_state, "interrupted"),
@@ -466,8 +479,6 @@ class CreationService:
         # 自动订阅
         broadcaster.subscribe(client_id, task_id)
 
-        key_nodes = {"planner", "writer", "reducer"}
-
         try:
             logger.info(f"恢复创作任务流式执行 - task_id: {task_id}, action: {action}")
 
@@ -475,35 +486,57 @@ class CreationService:
                 await graph.aupdate_state(config, {"outline": data["outline"]})
 
             await broadcaster.broadcast_update(
-                task_id, {"status": "running", "currentNode": "outline_confirmation", "progress": 30.0},
+                task_id,
+                {
+                    "status": "running",
+                    "currentNode": "outline_confirmation",
+                    "currentNodeLabel": NODE_LABELS["outline_confirmation"],
+                    "progress": 30.0,
+                },
             )
 
-            final_state = None
-            async for event in graph.astream_events(Command(resume=True), config, version="v2"):
-                if event["event"] == "on_chain_end":
-                    node_name = event.get("name", "")
-                    if node_name in key_nodes:
-                        output = event.get("data", {}).get("output", {})
-                        if isinstance(output, dict):
-                            progress = self._calculate_progress(output, "running")
-                            await broadcaster.broadcast_update(
-                                task_id,
-                                {"status": "running", "currentNode": node_name, "progress": progress},
-                            )
+            final_state: dict = {}
+            async for node_output in graph.astream(Command(resume=True), config):
+                for node_name, partial in node_output.items():
+                    if node_name == "__end__":
+                        final_state = partial if isinstance(partial, dict) else {}
+                        continue
 
-                elif event["event"] == "on_chain_end" and event.get("name") == "__end__":
-                    final_state = event.get("data", {}).get("output", {})
+                    if not isinstance(partial, dict):
+                        continue
+
+                    current_node = partial.get("current_node", node_name)
+                    label = NODE_LABELS.get(current_node, current_node)
+                    progress = self._calculate_progress(partial, "running")
+
+                    await broadcaster.broadcast_update(
+                        task_id,
+                        {
+                            "status": "running",
+                            "currentNode": current_node,
+                            "currentNodeLabel": label,
+                            "progress": progress,
+                        },
+                    )
 
             self._update_task(task_id, status="completed")
             logger.info(f"创作任务恢复流式完成 - task_id: {task_id}")
 
-            result = (final_state or {}).get("final_draft", "")
-            await broadcaster.broadcast_result(task_id, result, task["created_at"])
+            result = final_state.get("final_draft", "")
+            await broadcaster.broadcast_result(task_id, result or "", task["created_at"])
 
         except GraphInterrupt:
             self._update_task(task_id, status="interrupted")
             logger.warning(f"创作任务再次中断 - task_id: {task_id}")
-            await broadcaster.broadcast_update(task_id, {"status": "interrupted", "awaiting": "outline_confirmation"})
+            await broadcaster.broadcast_update(
+                task_id,
+                {
+                    "status": "interrupted",
+                    "currentNode": "outline_confirmation",
+                    "currentNodeLabel": NODE_LABELS["outline_confirmation"],
+                    "awaiting": "outline_confirmation",
+                },
+            )
 
         except Exception as e:
             self._update_task(task_id, status="failed", error=str(e))
