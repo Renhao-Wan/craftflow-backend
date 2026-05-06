@@ -10,7 +10,6 @@ from app.graph.common.prompts import (
     CONTENT_STRATEGIST_ROLE,
     PROFESSIONAL_EDITOR_ROLE,
     PROFESSIONAL_WRITER_ROLE,
-    SEARCH_TOOL_USAGE_INSTRUCTION,
     create_base_system_prompt,
 )
 
@@ -31,9 +30,10 @@ PLANNER_SYSTEM_PROMPT = create_base_system_prompt(
 3. **平衡性**：各章节的篇幅应大致均衡，避免某些章节过于冗长或简短
 4. **完整性**：大纲应覆盖主题的所有重要方面，不遗漏关键内容
 
-### 大纲输出格式
+### 输出格式（严格遵守）
 
-请以 JSON 格式输出大纲，结构如下：
+你必须且只能输出以下 JSON 格式，不要输出任何其他内容：
+
 ```json
 {
   "outline": [
@@ -45,12 +45,14 @@ PLANNER_SYSTEM_PROMPT = create_base_system_prompt(
 }
 ```
 
-### 搜索工具使用
-
-对于专业性较强的主题，建议先使用搜索工具获取最新的信息和数据，确保大纲的内容准确且与时俱进。""",
+**重要**：
+- 顶层键必须是 "outline"，不能是 "sections" 或其他名称
+- 每个章节对象必须包含 "title" 和 "summary" 两个字段
+- "summary" 必须是字符串，不能是数组
+- 只输出 JSON，不要输出任何解释文字""",
     include_markdown_rules=False,
-    include_anti_hallucination=True,
-    additional_instructions=SEARCH_TOOL_USAGE_INSTRUCTION,
+    include_anti_hallucination=False,
+    include_quality_standards=False,
 )
 
 PLANNER_HUMAN_PROMPT = """请根据以下主题生成文章大纲：
@@ -59,7 +61,16 @@ PLANNER_HUMAN_PROMPT = """请根据以下主题生成文章大纲：
 
 {description_section}
 
-请生成结构化的大纲，并以 JSON 格式返回。"""
+请严格按照以下 JSON 格式返回大纲（不要返回其他任何内容）：
+
+```json
+{{
+  "outline": [
+    {{"title": "章节标题", "summary": "本章要点概述"}},
+    ...
+  ]
+}}
+```"""
 
 # ============================================
 # WriterNode Prompt 模板

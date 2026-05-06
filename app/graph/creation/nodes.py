@@ -13,7 +13,7 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from app.core.logger import get_logger
-from app.graph.common.llm_factory import get_default_llm
+from app.graph.common.llm_factory import get_default_llm, get_custom_llm
 from app.graph.creation.prompts import (
     PLANNER_HUMAN_PROMPT,
     PLANNER_SYSTEM_PROMPT,
@@ -25,7 +25,6 @@ from app.graph.creation.prompts import (
     format_sections_for_reducer,
 )
 from app.graph.creation.state import CreationState, OutlineItem, SectionContent
-from app.graph.tools.search import SEARCH_TOOLS
 
 logger = get_logger(__name__)
 
@@ -66,6 +65,61 @@ def _extract_json_from_response(text: str) -> dict[str, Any] | None:
     return None
 
 
+def _normalize_outline(data: dict[str, Any]) -> list[OutlineItem] | None:
+    """将 LLM 返回的大纲 JSON 标准化为 OutlineItem 列表
+
+    LLM 可能返回多种格式：
+    1. {"outline": [{"title": "...", "summary": "..."}]}  — 标准格式
+    2. {"sections": [{"heading": "...", "content": [...]}]}  — 常见变体
+    3. {"title": "...", "sections": [...]}  — 带主题的变体
+
+    Args:
+        data: LLM 返回的 JSON 字典
+
+    Returns:
+        list[OutlineItem] | None: 标准化后的大纲列表，无法识别返回 None
+    """
+    # 格式 1：标准格式
+    if "outline" in data and isinstance(data["outline"], list):
+        items = data["outline"]
+        # 检查字段名是否正确
+        if items and isinstance(items[0], dict):
+            if "title" in items[0]:
+                return items  # type: ignore[return-value]
+            # 字段名不匹配，尝试转换
+            return [
+                {
+                    "title": item.get("heading", item.get("name", "")),
+                    "summary": (
+                        "\n".join(item["content"])
+                        if isinstance(item.get("content"), list)
+                        else str(item.get("summary", item.get("description", "")))
+                    ),
+                }
+                for item in items
+            ]
+
+    # 格式 2/3：sections 字段
+    if "sections" in data and isinstance(data["sections"], list):
+        items = data["sections"]
+        result: list[OutlineItem] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            title = item.get("heading", item.get("title", item.get("name", "")))
+            summary = item.get("summary", item.get("description", ""))
+            # content 可能是列表（要点列表）或字符串
+            if not summary and isinstance(item.get("content"), list):
+                summary = "\n".join(item["content"])
+            elif not summary and isinstance(item.get("content"), str):
+                summary = item["content"]
+            result.append({"title": title, "summary": summary})
+        if result:
+            return result
+
+    return None
+
+
 async def planner_node(state: CreationState) -> dict[str, Any]:
     """PlannerNode: 生成结构化大纲
 
@@ -81,9 +135,8 @@ async def planner_node(state: CreationState) -> dict[str, Any]:
     logger.info(f"PlannerNode 开始执行 - 主题: {state.get('topic', '未指定')}")
 
     try:
-        # 获取 LLM 实例并绑定搜索工具
-        llm = get_default_llm()
-        llm_with_tools = llm.bind_tools(SEARCH_TOOLS)
+        # 获取 LLM 实例（大纲生成需要更大的 max_tokens 以容纳完整 JSON）
+        llm = get_custom_llm(max_tokens=8192)
 
         # 构建 Prompt
         description = state.get("description", "")
@@ -100,14 +153,21 @@ async def planner_node(state: CreationState) -> dict[str, Any]:
             HumanMessage(content=human_message),
         ]
 
-        response = await llm_with_tools.ainvoke(messages)
+        response = await llm.ainvoke(messages)
         response_content = response.content if isinstance(response.content, str) else str(response.content)
 
-        # 解析大纲
+        # 解析大纲（支持多种 JSON 结构）
         outline_data = _extract_json_from_response(response_content)
+        outline: list[OutlineItem] | None = None
 
-        if outline_data and "outline" in outline_data:
-            outline: list[OutlineItem] = outline_data["outline"]
+        if outline_data:
+            outline = _normalize_outline(outline_data)
+            if not outline:
+                logger.warning(
+                    f"大纲 JSON 结构无法识别，keys: {list(outline_data.keys())}"
+                )
+
+        if outline:
             logger.info(f"大纲生成成功，共 {len(outline)} 个章节")
 
             # 返回状态更新
@@ -118,7 +178,7 @@ async def planner_node(state: CreationState) -> dict[str, Any]:
             }
         else:
             # 解析失败，使用默认大纲
-            logger.warning("大纲 JSON 解析失败，使用默认结构")
+            logger.warning(f"大纲 JSON 解析失败，原始响应前 500 字: {response_content[:500]}")
             default_outline: list[OutlineItem] = [
                 {"title": "引言", "summary": "介绍主题背景和核心概念"},
                 {"title": "核心内容", "summary": "详细阐述主题的关键要点"},
@@ -202,10 +262,10 @@ async def writer_node(state: CreationState) -> dict[str, Any]:
         logger.info(f"第 {current_index + 1} 章撰写完成: {section_title}")
 
         # 返回状态更新（使用 add reducer 追加）
+        # 注意：不返回 current_node，因为并发 writer 会冲突
         return {
             "sections": [section_content],
             "messages": [AIMessage(content=f"已完成第 {current_index + 1} 章：{section_title}")],
-            "current_node": "WriterNode",
         }
 
     except Exception as e:
@@ -213,7 +273,6 @@ async def writer_node(state: CreationState) -> dict[str, Any]:
         return {
             "error": f"第 {current_index + 1} 章撰写失败: {str(e)}",
             "messages": [AIMessage(content=f"第 {current_index + 1} 章撰写失败: {str(e)}")],
-            "current_node": "WriterNode",
         }
 
 

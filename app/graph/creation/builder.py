@@ -51,8 +51,9 @@ def _route_after_planner(state: CreationState) -> str:
 def _fan_out_writers(state: CreationState) -> list[Send]:
     """扇出 WriterNode 任务
 
-    根据大纲章节数量，创建多个并行的 WriterNode 任务。
+    根据大纲章节数量，为每个章节创建一个并行的 WriterNode 任务。
     使用 Send API 实现 Map-Reduce 模式。
+    每个 writer 独立工作，通过 sections 的 operator.add reducer 自动合并结果。
 
     Args:
         state: 当前图状态
@@ -61,30 +62,21 @@ def _fan_out_writers(state: CreationState) -> list[Send]:
         list[Send]: Send 对象列表，每个对应一个 WriterNode 任务
     """
     outline = state.get("outline", [])
-    existing_sections = state.get("sections", [])
 
     if not outline:
         logger.warning("大纲为空，无法扇出写作任务")
         return []
 
-    # 计算需要撰写的章节
-    remaining_sections = len(outline) - len(existing_sections)
+    logger.info(f"扇出 {len(outline)} 个写作任务")
 
-    if remaining_sections <= 0:
-        logger.info("所有章节已完成撰写")
-        return []
-
-    logger.info(f"扇出 {remaining_sections} 个写作任务")
-
-    # 为每个待撰写章节创建 Send 任务
+    # 为每个章节创建 Send 任务，传入该章节的索引信息
     sends = []
-    for i in range(len(existing_sections), len(outline)):
-        # 创建每个 WriterNode 的初始状态
+    for i in range(len(outline)):
         writer_state: CreationState = {
             "topic": state.get("topic", ""),
             "description": state.get("description"),
             "outline": outline,
-            "sections": existing_sections[:i],  # 传递当前已有的章节
+            "sections": [{"title": outline[j]["title"], "content": "", "index": j} for j in range(i)],
             "final_draft": None,
             "messages": [],
             "current_node": f"WriterNode_{i}",
@@ -98,26 +90,19 @@ def _fan_out_writers(state: CreationState) -> list[Send]:
 def _route_after_writing(state: CreationState) -> str:
     """WriterNode 之后的路由函数
 
-    检查是否所有章节都已完成撰写，决定是继续写作还是进入合并阶段。
+    所有章节通过 Send 并发执行，完成后统一进入合并阶段。
 
     Args:
         state: 当前图状态
 
     Returns:
-        str: 下一个节点名称或 Send 对象
+        str: 下一个节点名称
     """
     if state.get("error"):
         logger.warning("WriterNode 执行出错，流程结束")
         return END
 
-    sections = state.get("sections", [])
-    outline = state.get("outline", [])
-
-    # 如果还有未完成的章节，继续扇出写作任务
-    if len(sections) < len(outline):
-        return "fan_out"
-
-    # 所有章节完成，进入合并阶段
+    # Send 并发模式下，所有 writer 完成后直接进入合并
     logger.info("所有章节已完成，进入合并阶段")
     return "reducer"
 
@@ -149,6 +134,8 @@ def build_creation_graph() -> StateGraph:
     - 边：条件边和普通边
     - 中断点：大纲确认
 
+    流程：planner → (interrupt) outline_confirmation → fan_out writers → reducer → END
+
     Returns:
         StateGraph: 编译后的 Creation Graph
     """
@@ -168,12 +155,6 @@ def build_creation_graph() -> StateGraph:
     # 这是一个虚拟节点，实际的用户确认在图外部处理
     graph.add_node("outline_confirmation", lambda state: {
         "current_node": "outline_confirmation",
-        "messages": state.get("messages", []),
-    })
-
-    # Fan Out: 扇出节点，用于触发并发写作任务
-    graph.add_node("fan_out", lambda state: {
-        "current_node": "fan_out",
     })
 
     # WriterNode: 撰写章节
@@ -199,26 +180,17 @@ def build_creation_graph() -> StateGraph:
         },
     )
 
-    # Outline Confirmation -> Fan Out（用户确认后）
-    graph.add_edge("outline_confirmation", "fan_out")
-
-    # Fan Out -> 条件路由（扇出写作 / 进入合并）
+    # Outline Confirmation -> 扇出 WriterNode（通过 Send 并发）
     graph.add_conditional_edges(
-        "fan_out",
-        _route_after_writing,
-        {
-            "fan_out": "fan_out",  # 继续扇出
-            "reducer": "reducer",
-            END: END,
-        },
+        "outline_confirmation",
+        _fan_out_writers,
     )
 
-    # WriterNode -> 条件路由（继续写作 / 进入合并）
+    # WriterNode -> 条件路由（完成 → 合并）
     graph.add_conditional_edges(
         "writer",
         _route_after_writing,
         {
-            "fan_out": "fan_out",
             "reducer": "reducer",
             END: END,
         },

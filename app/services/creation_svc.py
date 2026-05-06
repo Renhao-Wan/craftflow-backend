@@ -31,7 +31,6 @@ logger = get_logger(__name__)
 NODE_LABELS = {
     "planner": "生成大纲",
     "outline_confirmation": "大纲确认",
-    "fan_out": "章节分配",
     "writer": "撰写章节",
     "reducer": "合并润色",
 }
@@ -387,6 +386,9 @@ class CreationService:
             logger.info(f"创作任务流式启动 - task_id: {task_id}, topic: {topic}")
 
             final_state: dict = {}
+            total_sections = len(initial_state.get("outline", []))
+            completed_writers = 0
+
             async for node_output in graph.astream(initial_state, config):
                 # node_output: {"node_name": {节点输出的增量字典}}
                 for node_name, partial in node_output.items():
@@ -397,9 +399,15 @@ class CreationService:
                     if not isinstance(partial, dict):
                         continue
 
+                    # 跟踪 writer 完成进度
+                    if node_name == "writer" and "sections" in partial:
+                        completed_writers += 1
+
                     current_node = partial.get("current_node", node_name)
                     label = NODE_LABELS.get(current_node, current_node)
-                    progress = self._calculate_progress(partial, "running")
+                    progress = self._calculate_writer_progress(
+                        current_node, completed_writers, total_sections,
+                    )
 
                     await broadcaster.broadcast_update(
                         task_id,
@@ -413,14 +421,47 @@ class CreationService:
 
                     logger.debug(f"节点完成 - {node_name} ({label}), progress: {progress}")
 
-            # 正常返回 = 图已完成
-            self._update_task(task_id, status="completed")
-            logger.info(f"创作任务流式完成 - task_id: {task_id}")
+            # astream() 遇到 interrupt_before 不会抛异常，而是停止 yield
+            # 检查图状态是否有待处理的中断
+            snapshot = await graph.aget_state(config)
+            has_pending_interrupt = any(
+                task.state is None for task in snapshot.tasks
+            ) if snapshot and snapshot.tasks else False
 
-            result = final_state.get("final_draft", "")
-            await broadcaster.broadcast_result(
-                task_id, result or "", self._tasks[task_id]["created_at"],
-            )
+            if has_pending_interrupt:
+                # 图在中断点暂停（大纲待确认）
+                self._update_task(task_id, status="interrupted")
+                logger.info(f"创作任务流式暂停（大纲待确认）- task_id: {task_id}")
+
+                graph_state = snapshot.values if snapshot else {}
+                outline_data = None
+                raw_outline = graph_state.get("outline")
+                if raw_outline:
+                    outline_data = [
+                        {"title": item.get("title", ""), "summary": item.get("summary", "")}
+                        for item in raw_outline
+                    ]
+
+                await broadcaster.broadcast_update(
+                    task_id,
+                    {
+                        "status": "interrupted",
+                        "currentNode": "outline_confirmation",
+                        "currentNodeLabel": NODE_LABELS["outline_confirmation"],
+                        "awaiting": "outline_confirmation",
+                        "data": {"outline": outline_data} if outline_data else None,
+                        "progress": self._calculate_progress(graph_state, "interrupted"),
+                    },
+                )
+            else:
+                # 正常完成
+                self._update_task(task_id, status="completed")
+                logger.info(f"创作任务流式完成 - task_id: {task_id}")
+
+                result = final_state.get("final_draft", "")
+                await broadcaster.broadcast_result(
+                    task_id, result or "", self._tasks[task_id]["created_at"],
+                )
 
         except GraphInterrupt:
             self._update_task(task_id, status="interrupted")
@@ -433,7 +474,7 @@ class CreationService:
             raw_outline = graph_state.get("outline")
             if raw_outline:
                 outline_data = [
-                    {"title": item.title, "summary": item.summary}
+                    {"title": item.get("title", ""), "summary": item.get("summary", "")}
                     for item in raw_outline
                 ]
 
@@ -495,7 +536,14 @@ class CreationService:
                 },
             )
 
+            # 获取大纲长度用于计算 writer 进度
+            pre_snapshot = await graph.aget_state(config)
+            pre_state = pre_snapshot.values if pre_snapshot else {}
+            total_sections = len(pre_state.get("outline", []))
+
             final_state: dict = {}
+            completed_writers = 0
+
             async for node_output in graph.astream(Command(resume=True), config):
                 for node_name, partial in node_output.items():
                     if node_name == "__end__":
@@ -505,9 +553,15 @@ class CreationService:
                     if not isinstance(partial, dict):
                         continue
 
+                    # 跟踪 writer 完成进度
+                    if node_name == "writer" and "sections" in partial:
+                        completed_writers += 1
+
                     current_node = partial.get("current_node", node_name)
                     label = NODE_LABELS.get(current_node, current_node)
-                    progress = self._calculate_progress(partial, "running")
+                    progress = self._calculate_writer_progress(
+                        current_node, completed_writers, total_sections,
+                    )
 
                     await broadcaster.broadcast_update(
                         task_id,
@@ -519,11 +573,29 @@ class CreationService:
                         },
                     )
 
-            self._update_task(task_id, status="completed")
-            logger.info(f"创作任务恢复流式完成 - task_id: {task_id}")
+            # 检查是否有待处理的中断
+            snapshot = await graph.aget_state(config)
+            has_pending_interrupt = any(
+                task.state is None for task in snapshot.tasks
+            ) if snapshot and snapshot.tasks else False
 
-            result = final_state.get("final_draft", "")
-            await broadcaster.broadcast_result(task_id, result or "", task["created_at"])
+            if has_pending_interrupt:
+                self._update_task(task_id, status="interrupted")
+                logger.info(f"创作任务恢复后再次中断 - task_id: {task_id}")
+                await broadcaster.broadcast_update(
+                    task_id,
+                    {
+                        "status": "interrupted",
+                        "currentNode": "outline_confirmation",
+                        "currentNodeLabel": NODE_LABELS["outline_confirmation"],
+                        "awaiting": "outline_confirmation",
+                    },
+                )
+            else:
+                self._update_task(task_id, status="completed")
+                logger.info(f"创作任务恢复流式完成 - task_id: {task_id}")
+                result = final_state.get("final_draft", "")
+                await broadcaster.broadcast_result(task_id, result or "", task["created_at"])
 
         except GraphInterrupt:
             self._update_task(task_id, status="interrupted")
@@ -559,11 +631,36 @@ class CreationService:
         progress_map = {
             "planner": 20.0,
             "outline_confirmation": 30.0,
-            "fan_out": 40.0,
             "writer": 60.0,
             "reducer": 80.0,
         }
         return progress_map.get(current_node, 10.0)
+
+    @staticmethod
+    def _calculate_writer_progress(
+        current_node: str, completed_writers: int, total_sections: int,
+    ) -> float:
+        """计算包含并发 writer 的总体进度
+
+        进度分配：
+        - planner: 10%
+        - outline_confirmation: 20%
+        - writer 阶段: 30% ~ 80%（按完成比例线性增长）
+        - reducer: 80% ~ 95%
+        - completed: 100%
+        """
+        if current_node == "planner":
+            return 10.0
+        if current_node == "outline_confirmation":
+            return 20.0
+        if current_node == "writer":
+            if total_sections <= 0:
+                return 55.0
+            ratio = min(completed_writers / total_sections, 1.0)
+            return 30.0 + ratio * 50.0  # 30% → 80%
+        if current_node == "reducer":
+            return 90.0
+        return 10.0
 
     @staticmethod
     def _serialize_state(state: dict) -> dict:
@@ -577,12 +674,12 @@ class CreationService:
                 ]
             elif key == "outline":
                 serialized[key] = [
-                    {"title": item.title, "summary": item.summary}
+                    {"title": item.get("title", ""), "summary": item.get("summary", "")}
                     for item in (value or [])
                 ]
             elif key == "sections":
                 serialized[key] = [
-                    {"title": s.title, "content": s.content, "index": s.index}
+                    {"title": s.get("title", ""), "content": s.get("content", ""), "index": s.get("index", 0)}
                     for s in (value or [])
                 ]
             else:
