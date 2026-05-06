@@ -1,16 +1,15 @@
 """Creation API 路由
 
 提供创作任务相关的 RESTful 接口：
-- POST   /creation           创建创作任务
-- GET    /tasks/{task_id}    查询任务状态
-- POST   /tasks/{task_id}/resume  恢复中断的任务（HITL）
+- POST   /creation                  创建创作任务
+- POST   /tasks/{task_id}/resume    恢复中断的任务（HITL）
 """
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 
 from app.api.dependencies import get_creation_service
 from app.schemas.request import CreationRequest, ResumeRequest
-from app.schemas.response import TaskResponse, TaskStatusResponse
+from app.schemas.response import TaskResponse
 from app.services.creation_svc import CreationService
 
 router = APIRouter()
@@ -40,30 +39,6 @@ async def create_creation_task(
     return await service.start_task(
         topic=request.topic,
         description=request.description,
-    )
-
-
-@router.get(
-    "/tasks/{task_id}",
-    response_model=TaskStatusResponse,
-    summary="查询任务状态",
-    description="根据任务 ID 查询创作任务的当前状态、进度和结果。",
-    responses={
-        200: {"description": "查询成功"},
-        404: {"description": "任务不存在"},
-    },
-)
-async def get_task_status(
-    task_id: str,
-    include_state: bool = Query(False, description="是否返回完整图状态"),
-    include_history: bool = Query(False, description="是否返回执行历史"),
-    service: CreationService = Depends(get_creation_service),
-) -> TaskStatusResponse:
-    """查询创作任务状态"""
-    return await service.get_task_status(
-        task_id=task_id,
-        include_state=include_state,
-        include_history=include_history,
     )
 
 

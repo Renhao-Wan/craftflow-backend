@@ -222,6 +222,25 @@ async def close_checkpointer() -> None:
         logger.info("Checkpointer 已重置")
 
 
+async def cleanup_checkpoint(thread_id: str) -> None:
+    """清理指定 thread_id 的 checkpoint 数据（通用接口）
+
+    任务完成/失败后调用，释放 checkpoint 存储空间。
+    不依赖具体的 Checkpointer 实现，通过 BaseCheckpointSaver 的通用方法操作。
+
+    Args:
+        thread_id: 要清理的 thread_id（等于 task_id）
+    """
+    if _checkpointer is None:
+        return
+
+    try:
+        await _checkpointer.adelete_thread(thread_id)
+        logger.debug(f"Checkpoint 已清理 - thread_id: {thread_id}")
+    except Exception as e:
+        logger.warning(f"清理 checkpoint 失败 - thread_id: {thread_id}, error: {e}")
+
+
 def reset_checkpointer() -> None:
     """重置 Checkpointer 单例（仅用于测试）
 

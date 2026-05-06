@@ -11,10 +11,13 @@ from unittest.mock import AsyncMock
 
 from httpx import AsyncClient, ASGITransport
 
-from app.api.dependencies import get_creation_service
+from app.api.dependencies import get_creation_service, get_polishing_service, get_task_store
 from app.api.v1.creation import router as creation_router
+from app.api.v1.tasks import router as tasks_router
 from app.schemas.response import TaskResponse, TaskStatusResponse
 from app.services.creation_svc import CreationService
+from app.services.polishing_svc import PolishingService
+from app.services.task_store import TaskStore
 
 
 @pytest.fixture
@@ -24,15 +27,33 @@ def mock_service():
 
 
 @pytest.fixture
-def app(mock_service):
-    """创建测试用 FastAPI 应用，全局覆盖 CreationService 依赖"""
+def mock_polishing_service():
+    """创建 mock PolishingService"""
+    return AsyncMock(spec=PolishingService)
+
+
+@pytest.fixture
+def mock_task_store():
+    """创建 mock TaskStore"""
+    store = AsyncMock(spec=TaskStore)
+    store.get_task.return_value = None
+    store.get_task_list.return_value = []
+    return store
+
+
+@pytest.fixture
+def app(mock_service, mock_polishing_service, mock_task_store):
+    """创建测试用 FastAPI 应用，覆盖所有服务依赖"""
     from fastapi import FastAPI
     from app.core.exceptions import register_exception_handlers
 
     application = FastAPI()
     register_exception_handlers(application)
     application.include_router(creation_router, prefix="/api/v1")
+    application.include_router(tasks_router, prefix="/api/v1")
     application.dependency_overrides[get_creation_service] = lambda: mock_service
+    application.dependency_overrides[get_polishing_service] = lambda: mock_polishing_service
+    application.dependency_overrides[get_task_store] = lambda: mock_task_store
     return application
 
 
@@ -212,11 +233,12 @@ class TestGetTaskStatus:
         assert len(data["history"]) == 1
 
     @pytest.mark.asyncio
-    async def test_get_status_not_found(self, client, mock_service):
+    async def test_get_status_not_found(self, client, mock_service, mock_polishing_service):
         """测试查询不存在的任务返回 404"""
         from app.core.exceptions import TaskNotFoundError
 
         mock_service.get_task_status.side_effect = TaskNotFoundError(task_id="nonexistent")
+        mock_polishing_service.get_task_status.side_effect = TaskNotFoundError(task_id="nonexistent")
 
         response = await client.get("/api/v1/tasks/nonexistent")
 

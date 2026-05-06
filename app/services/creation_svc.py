@@ -25,6 +25,7 @@ from app.core.exceptions import GraphExecutionError, TaskNotFoundError
 from app.core.logger import get_logger
 from app.graph.creation.builder import get_creation_graph
 from app.schemas.response import TaskResponse, TaskStatusResponse
+from app.services.checkpointer import cleanup_checkpoint
 from app.services.task_store import TaskStore
 
 logger = get_logger(__name__)
@@ -149,6 +150,9 @@ class CreationService:
         except Exception as e:
             logger.error(f"保存任务到 SQLite 失败 - task_id: {task_id}, error: {e}", exc_info=True)
 
+        # 清理 checkpoint 数据
+        await cleanup_checkpoint(thread_id)
+
         # 从 _tasks dict 移除
         self._tasks.pop(task_id, None)
 
@@ -207,17 +211,35 @@ class CreationService:
 
             # 如果 ainvoke 正常返回（无中断），说明图已执行完成
             self._update_task(task_id, status="completed")
+            created_at = self._tasks[task_id]["created_at"]
+            graph_state = result or {}
+            final_result = graph_state.get("final_draft", "")
+
+            # 提取大纲数据用于持久化
+            outline_for_db = None
+            raw_outline = graph_state.get("outline")
+            if raw_outline:
+                outline_for_db = [
+                    {"title": item.get("title", ""), "summary": item.get("summary", "")}
+                    for item in raw_outline
+                ]
+
+            # 持久化到 TaskStore + 清理 checkpoint + 释放内存
+            await self._persist_and_cleanup(
+                task_id, thread_id, "completed",
+                result=final_result, outline_data=outline_for_db,
+            )
             logger.info(f"创作任务已完成 - task_id: {task_id}")
 
             return TaskResponse(
                 task_id=task_id,
                 status="completed",
                 message="创作任务已完成",
-                created_at=self._tasks[task_id]["created_at"],
+                created_at=created_at,
             )
 
         except GraphInterrupt as e:
-            # 图在 outline_confirmation 中断点暂停
+            # 图在 outline_confirmation 中断点暂停（不清理，等待恢复）
             self._update_task(task_id, status="interrupted")
             logger.info(f"创作任务暂停（大纲待确认）- task_id: {task_id}")
 
@@ -231,6 +253,11 @@ class CreationService:
         except Exception as e:
             self._update_task(task_id, status="failed", error=str(e))
             logger.error(f"创作任务失败 - task_id: {task_id}, error: {str(e)}")
+
+            # 持久化到 TaskStore + 清理 checkpoint + 释放内存
+            await self._persist_and_cleanup(
+                task_id, thread_id, "failed", error=str(e),
+            )
 
             raise GraphExecutionError(
                 message=f"创作任务执行失败: {str(e)}",
@@ -278,13 +305,31 @@ class CreationService:
 
             # 正常返回表示图已完成
             self._update_task(task_id, status="completed")
+            created_at = task["created_at"]
+            graph_state = result or {}
+            final_result = graph_state.get("final_draft", "")
+
+            # 提取大纲数据用于持久化
+            outline_for_db = None
+            raw_outline = graph_state.get("outline")
+            if raw_outline:
+                outline_for_db = [
+                    {"title": item.get("title", ""), "summary": item.get("summary", "")}
+                    for item in raw_outline
+                ]
+
+            # 持久化到 TaskStore + 清理 checkpoint + 释放内存
+            await self._persist_and_cleanup(
+                task_id, thread_id, "completed",
+                result=final_result, outline_data=outline_for_db,
+            )
             logger.info(f"创作任务恢复完成 - task_id: {task_id}")
 
             return TaskResponse(
                 task_id=task_id,
                 status="completed",
                 message="创作任务已完成",
-                created_at=task["created_at"],
+                created_at=created_at,
             )
 
         except GraphInterrupt:
@@ -303,6 +348,11 @@ class CreationService:
             self._update_task(task_id, status="failed", error=str(e))
             logger.error(f"创作任务恢复失败 - task_id: {task_id}, error: {str(e)}")
 
+            # 持久化到 TaskStore + 清理 checkpoint + 释放内存
+            await self._persist_and_cleanup(
+                task_id, thread_id, "failed", error=str(e),
+            )
+
             raise GraphExecutionError(
                 message=f"创作任务恢复失败: {str(e)}",
                 details={"task_id": task_id, "action": action},
@@ -316,6 +366,8 @@ class CreationService:
     ) -> TaskStatusResponse:
         """查询创作任务状态
 
+        查询顺序：内存 _tasks（running/interrupted）→ TaskStore（completed/failed）
+
         Args:
             task_id: 任务 ID
             include_state: 是否包含完整图状态
@@ -327,10 +379,39 @@ class CreationService:
         Raises:
             TaskNotFoundError: 任务不存在时抛出
         """
+        # 1. 先查内存（running / interrupted 任务）
         task = self._tasks.get(task_id)
-        if task is None:
-            raise TaskNotFoundError(task_id=task_id)
 
+        # 2. 内存未找到，查 TaskStore（completed / failed 任务）
+        if task is None:
+            row = await self.task_store.get_task(task_id)
+            if row is None:
+                raise TaskNotFoundError(task_id=task_id)
+
+            # 从 TaskStore 行构建响应
+            data = None
+            if row.get("outline"):
+                try:
+                    data = {"outline": json.loads(row["outline"])}
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            return TaskStatusResponse(
+                task_id=task_id,
+                status=row["status"],
+                current_node=None,
+                awaiting=None,
+                data=data,
+                result=row.get("result"),
+                error=row.get("error"),
+                progress=row.get("progress"),
+                state=None,
+                history=None,
+                created_at=row.get("created_at"),
+                updated_at=row.get("updated_at"),
+            )
+
+        # 3. 内存中找到（running / interrupted），从 checkpoint 读取图状态
         thread_id = task["thread_id"]
         config = self._build_config(thread_id)
         graph = self._get_graph()
@@ -351,30 +432,22 @@ class CreationService:
         )
 
         try:
-            # 获取当前图状态
             snapshot = await graph.aget_state(config)
             graph_state = snapshot.values if snapshot else {}
 
-            # 提取当前节点信息
             current_node = graph_state.get("current_node")
             response.current_node = current_node
-
-            # 计算进度
             response.progress = self._calculate_progress(graph_state, task["status"])
 
-            # 提取结果
             if task["status"] == "completed":
                 response.result = graph_state.get("final_draft")
 
-            # 设置 awaiting 信息
             if task["status"] == "interrupted":
                 response.awaiting = "outline_confirmation"
 
-            # 附加完整状态
             if include_state:
                 response.state = self._serialize_state(graph_state)
 
-            # 附加执行历史
             if include_history:
                 response.history = await self._get_history(config)
 

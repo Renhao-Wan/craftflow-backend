@@ -1,7 +1,9 @@
-"""任务历史 REST API
+"""任务 REST API
 
-提供任务列表查询和删除功能。
-运行中/中断的任务从内存获取，已完成/失败的任务从 SQLite 获取。
+提供通用的任务查询和删除功能。
+- GET    /tasks           任务列表（SQLite 终态 + 内存运行态）
+- GET    /tasks/{task_id} 单任务状态查询
+- DELETE /tasks/{task_id} 删除任务记录
 """
 
 from typing import Any
@@ -14,6 +16,7 @@ from app.api.dependencies import (
     get_task_store,
 )
 from app.core.exceptions import TaskNotFoundError
+from app.schemas.response import TaskStatusResponse
 from app.services.creation_svc import CreationService
 from app.services.polishing_svc import PolishingService
 from app.services.task_store import TaskStore
@@ -52,6 +55,31 @@ async def list_tasks(
     all_tasks.sort(key=lambda t: t.get("created_at", ""), reverse=True)
 
     return all_tasks[:limit]
+
+
+@router.get("/tasks/{task_id}", response_model=TaskStatusResponse)
+async def get_task_status(
+    task_id: str,
+    creation_svc: CreationService = Depends(get_creation_service),
+    polishing_svc: PolishingService = Depends(get_polishing_service),
+) -> TaskStatusResponse:
+    """查询单个任务状态
+
+    自动识别任务类型（创作/润色），查询顺序：
+    1. CreationService（内存 → TaskStore）
+    2. PolishingService（内存 → TaskStore）
+    """
+    try:
+        return await creation_svc.get_task_status(task_id)
+    except TaskNotFoundError:
+        pass
+
+    try:
+        return await polishing_svc.get_task_status(task_id)
+    except TaskNotFoundError:
+        pass
+
+    raise TaskNotFoundError(task_id=task_id)
 
 
 @router.delete("/tasks/{task_id}")

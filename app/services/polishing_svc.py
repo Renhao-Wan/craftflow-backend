@@ -20,6 +20,7 @@ from app.core.exceptions import GraphExecutionError, TaskNotFoundError
 from app.core.logger import get_logger
 from app.graph.polishing.builder import get_polishing_graph
 from app.schemas.response import TaskResponse, TaskStatusResponse
+from app.services.checkpointer import cleanup_checkpoint
 from app.services.task_store import TaskStore
 
 logger = get_logger(__name__)
@@ -138,6 +139,9 @@ class PolishingService:
         except Exception as e:
             logger.error(f"保存任务到 SQLite 失败 - task_id: {task_id}, error: {e}", exc_info=True)
 
+        # 清理 checkpoint 数据
+        await cleanup_checkpoint(thread_id)
+
         self._tasks.pop(task_id, None)
 
     # ============================================
@@ -203,19 +207,34 @@ class PolishingService:
                 self._update_task(task_id, status="failed", error=error)
                 logger.error(f"润色任务失败 - task_id: {task_id}, error: {error}")
 
+                # 持久化 + 清理 + 释放内存
+                await self._persist_and_cleanup(
+                    task_id, thread_id, "failed", error=error,
+                )
+
                 raise GraphExecutionError(
                     message=f"润色任务执行失败: {error}",
                     details={"task_id": task_id, "mode": mode},
                 )
 
             self._update_task(task_id, status="completed")
+            created_at = self._tasks[task_id]["created_at"]
+
+            # 从图状态提取结果
+            graph_state = result or {}
+            final_result = self._extract_result(graph_state) or ""
+
+            # 持久化 + 清理 + 释放内存
+            await self._persist_and_cleanup(
+                task_id, thread_id, "completed", result=final_result,
+            )
             logger.info(f"润色任务完成 - task_id: {task_id}")
 
             return TaskResponse(
                 task_id=task_id,
                 status="completed",
                 message=f"{mode_name}完成",
-                created_at=self._tasks[task_id]["created_at"],
+                created_at=created_at,
             )
 
         except GraphExecutionError:
@@ -223,6 +242,11 @@ class PolishingService:
         except Exception as e:
             self._update_task(task_id, status="failed", error=str(e))
             logger.error(f"润色任务异常 - task_id: {task_id}, error: {str(e)}")
+
+            # 持久化 + 清理 + 释放内存
+            await self._persist_and_cleanup(
+                task_id, thread_id, "failed", error=str(e),
+            )
 
             raise GraphExecutionError(
                 message=f"润色任务执行异常: {str(e)}",
@@ -237,6 +261,8 @@ class PolishingService:
     ) -> TaskStatusResponse:
         """查询润色任务状态
 
+        查询顺序：内存 _tasks（running）→ TaskStore（completed/failed）
+
         Args:
             task_id: 任务 ID
             include_state: 是否包含完整图状态
@@ -248,10 +274,31 @@ class PolishingService:
         Raises:
             TaskNotFoundError: 任务不存在时抛出
         """
+        # 1. 先查内存（running 任务）
         task = self._tasks.get(task_id)
-        if task is None:
-            raise TaskNotFoundError(task_id=task_id)
 
+        # 2. 内存未找到，查 TaskStore（completed / failed 任务）
+        if task is None:
+            row = await self.task_store.get_task(task_id)
+            if row is None:
+                raise TaskNotFoundError(task_id=task_id)
+
+            return TaskStatusResponse(
+                task_id=task_id,
+                status=row["status"],
+                current_node=None,
+                awaiting=None,
+                data=None,
+                result=row.get("result"),
+                error=row.get("error"),
+                progress=row.get("progress"),
+                state=None,
+                history=None,
+                created_at=row.get("created_at"),
+                updated_at=row.get("updated_at"),
+            )
+
+        # 3. 内存中找到（running），从 checkpoint 读取图状态
         thread_id = task["thread_id"]
         config = self._build_config(thread_id)
         graph = self._get_graph()
@@ -277,7 +324,6 @@ class PolishingService:
 
             current_node = graph_state.get("current_node")
             response.current_node = current_node
-
             response.progress = self._calculate_progress(graph_state, task["status"])
 
             if task["status"] == "completed":
