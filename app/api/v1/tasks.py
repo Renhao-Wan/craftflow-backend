@@ -58,11 +58,23 @@ async def list_tasks(
 async def delete_task(
     task_id: str,
     store: TaskStore = Depends(get_task_store),
+    creation_svc: CreationService = Depends(get_creation_service),
+    polishing_svc: PolishingService = Depends(get_polishing_service),
 ) -> dict[str, Any]:
     """删除任务记录
 
-    从 SQLite 中删除已完成/失败的任务记录。
+    优先从内存中删除运行中的任务，如果内存中没有则从 SQLite 删除。
     """
+    # 1. 先检查内存中是否有该任务（running/interrupted）
+    if task_id in creation_svc._tasks:
+        creation_svc._tasks.pop(task_id, None)
+        return {"task_id": task_id, "deleted": True}
+
+    if task_id in polishing_svc._tasks:
+        polishing_svc._tasks.pop(task_id, None)
+        return {"task_id": task_id, "deleted": True}
+
+    # 2. 内存中没有，从 SQLite 删除
     deleted = await store.delete_task(task_id)
     if not deleted:
         raise TaskNotFoundError(task_id=task_id)

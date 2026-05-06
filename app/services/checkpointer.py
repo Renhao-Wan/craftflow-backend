@@ -1,14 +1,23 @@
 """Checkpointer 单例管理模块
 
-根据环境变量选择 Checkpointer 实现：
-- 开发环境：MemorySaver（内存存储，进程退出即丢失）
-- 生产环境：PostgresSaver（PostgreSQL 持久化存储）
+根据 settings.checkpointer_backend 选择 Checkpointer 实现：
+- memory   → MemorySaver（内存存储，进程退出即丢失，适合快速调试）
+- sqlite   → SqliteSaver（SQLite 持久化，零配置，开发/小规模部署推荐）
+- postgres → PostgresSaver（PostgreSQL 持久化，生产环境推荐）
+
+数据库文件统一存放在 data/ 目录下：
+- data/checkpoints/checkpoints.db  （SqliteSaver）
+- data/sqlite/tasks.db             （TaskStore）
+- data/chroma_db/                  （Chroma 向量数据库）
 
 使用模块级单例确保全局只有一个 Checkpointer 实例。
 """
 
+from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Optional
 
+import aiosqlite
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import MemorySaver
 
@@ -18,43 +27,164 @@ from app.core.logger import get_logger
 
 logger = get_logger(__name__)
 
+# 数据目录根路径：craftflow-backend/data/
+DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+
 # 模块级单例
 _checkpointer: Optional[BaseCheckpointSaver] = None
+_closer: Optional["_Closer"] = None
+
+
+# ============================================
+# 抽象工厂
+# ============================================
+
+
+class _Closer(ABC):
+    """Checkpointer 资源释放接口"""
+
+    @abstractmethod
+    async def close(self) -> None:
+        ...
+
+
+class CheckpointerFactory(ABC):
+    """Checkpointer 创建工厂基类"""
+
+    @abstractmethod
+    async def create(self) -> tuple[BaseCheckpointSaver, _Closer]:
+        """创建 Checkpointer 实例和对应的 Closer
+
+        Returns:
+            (checkpointer, closer) 元组
+        """
+        ...
+
+
+# ============================================
+# 具体工厂实现
+# ============================================
+
+
+class MemoryCheckpointerFactory(CheckpointerFactory):
+    """MemorySaver 工厂（内存存储，无需清理）"""
+
+    async def create(self) -> tuple[BaseCheckpointSaver, _Closer]:
+        saver = MemorySaver()
+
+        class _NoopCloser(_Closer):
+            async def close(self) -> None:
+                pass
+
+        return saver, _NoopCloser()
+
+
+class SqliteCheckpointerFactory(CheckpointerFactory):
+    """SqliteSaver 工厂（SQLite 持久化）
+
+    数据库路径：data/checkpoints/checkpoints.db
+    """
+
+    DB_PATH = DATA_DIR / "checkpoints" / "checkpoints.db"
+
+    async def create(self) -> tuple[BaseCheckpointSaver, _Closer]:
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+        self.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        conn = await aiosqlite.connect(str(self.DB_PATH))
+        saver = AsyncSqliteSaver(conn)
+        await saver.setup()
+
+        class _SqliteCloser(_Closer):
+            def __init__(self, c: aiosqlite.Connection):
+                self._conn = c
+
+            async def close(self) -> None:
+                await self._conn.close()
+
+        return saver, _SqliteCloser(conn)
+
+
+class PostgresCheckpointerFactory(CheckpointerFactory):
+    """PostgresSaver 工厂（PostgreSQL 持久化）"""
+
+    async def create(self) -> tuple[BaseCheckpointSaver, _Closer]:
+        try:
+            from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+        except ImportError as e:
+            raise CheckpointerError(
+                message="PostgresSaver 依赖未安装，请安装 langgraph-checkpoint-postgres",
+                details={"missing_package": "langgraph-checkpoint-postgres"},
+            ) from e
+
+        try:
+            saver = AsyncPostgresSaver.from_conn_string(settings.database_url)
+            await saver.setup()
+        except Exception as e:
+            raise CheckpointerError(
+                message=f"PostgreSQL 连接失败: {str(e)}",
+                details={"database_url": settings.database_url},
+            ) from e
+
+        class _PostgresCloser(_Closer):
+            def __init__(self, s: BaseCheckpointSaver):
+                self._saver = s
+
+            async def close(self) -> None:
+                if hasattr(self._saver, "conn") and self._saver.conn is not None:
+                    await self._saver.conn.close()
+
+        return saver, _PostgresCloser(saver)
+
+
+# 后端 → 工厂映射
+_FACTORIES: dict[str, CheckpointerFactory] = {
+    "memory": MemoryCheckpointerFactory(),
+    "sqlite": SqliteCheckpointerFactory(),
+    "postgres": PostgresCheckpointerFactory(),
+}
+
+
+# ============================================
+# 模块级 API
+# ============================================
 
 
 async def init_checkpointer() -> BaseCheckpointSaver:
     """初始化 Checkpointer 单例
 
-    根据 settings.use_persistent_checkpointer 选择实现：
-    - False → MemorySaver（开发环境）
-    - True → PostgresSaver（生产环境，需要 PostgreSQL 连接）
+    根据 settings.checkpointer_backend 选择对应工厂创建实例。
 
     Returns:
         BaseCheckpointSaver: 初始化后的 Checkpointer 实例
 
     Raises:
-        CheckpointerError: 初始化失败时抛出
+        CheckpointerError: 初始化失败或后端名称无效时抛出
     """
-    global _checkpointer
+    global _checkpointer, _closer
 
     if _checkpointer is not None:
         logger.info("Checkpointer 已初始化，返回现有实例")
         return _checkpointer
 
+    backend = settings.checkpointer_backend
+    factory = _FACTORIES.get(backend)
+    if factory is None:
+        raise CheckpointerError(
+            message=f"未知的 Checkpointer 后端: {backend}",
+            details={"valid_backends": list(_FACTORIES.keys())},
+        )
+
     try:
-        if settings.use_persistent_checkpointer:
-            _checkpointer = await _create_postgres_saver()
-            logger.info("PostgresSaver 初始化完成")
-        else:
-            _checkpointer = MemorySaver()
-            logger.info("MemorySaver 初始化完成（开发模式，数据仅存于内存）")
-
+        _checkpointer, _closer = await factory.create()
+        logger.info(f"Checkpointer 初始化完成 - 后端: {backend}")
         return _checkpointer
-
+    except CheckpointerError:
+        raise
     except Exception as e:
         raise CheckpointerError(
             message=f"Checkpointer 初始化失败: {str(e)}",
-            details={"use_persistent": settings.use_persistent_checkpointer},
+            details={"backend": backend},
         ) from e
 
 
@@ -75,56 +205,21 @@ def get_checkpointer() -> BaseCheckpointSaver:
 
 
 async def close_checkpointer() -> None:
-    """关闭 Checkpointer，释放资源
-
-    对于 PostgresSaver，关闭数据库连接池。
-    对于 MemorySaver，清除引用等待 GC。
-    """
-    global _checkpointer
+    """关闭 Checkpointer，释放资源"""
+    global _checkpointer, _closer
 
     if _checkpointer is None:
         return
 
     try:
-        # PostgresSaver 可能有 conn 属性需要关闭
-        if hasattr(_checkpointer, "conn") and _checkpointer.conn is not None:
-            await _checkpointer.conn.close()
-            logger.info("PostgresSaver 连接已关闭")
+        if _closer is not None:
+            await _closer.close()
     except Exception as e:
         logger.warning(f"关闭 Checkpointer 时出错: {str(e)}")
     finally:
         _checkpointer = None
+        _closer = None
         logger.info("Checkpointer 已重置")
-
-
-async def _create_postgres_saver() -> BaseCheckpointSaver:
-    """创建 PostgresSaver 实例
-
-    使用 AsyncPostgresSaver 连接 PostgreSQL 数据库。
-
-    Returns:
-        BaseCheckpointSaver: PostgresSaver 实例
-
-    Raises:
-        CheckpointerError: 连接失败时抛出
-    """
-    try:
-        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-
-        saver = AsyncPostgresSaver.from_conn_string(settings.database_url)
-        await saver.setup()
-        return saver
-
-    except ImportError as e:
-        raise CheckpointerError(
-            message="PostgresSaver 依赖未安装，请安装 langgraph-checkpoint-postgres",
-            details={"missing_package": "langgraph-checkpoint-postgres"},
-        ) from e
-    except Exception as e:
-        raise CheckpointerError(
-            message=f"PostgreSQL 连接失败: {str(e)}",
-            details={"database_url": settings.database_url},
-        ) from e
 
 
 def reset_checkpointer() -> None:
@@ -132,5 +227,6 @@ def reset_checkpointer() -> None:
 
     警告：此方法仅应在测试中调用，生产环境使用 close_checkpointer()。
     """
-    global _checkpointer
+    global _checkpointer, _closer
     _checkpointer = None
+    _closer = None

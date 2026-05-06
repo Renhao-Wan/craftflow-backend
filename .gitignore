@@ -68,10 +68,8 @@ dmypy.json
 # Ruff
 .ruff_cache/
 
-# Database
-*.db
-*.sqlite
-*.sqlite3
+# Database & Runtime Data
+data/
 
 # LangGraph
 .langgraph/

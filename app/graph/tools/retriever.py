@@ -41,6 +41,9 @@ except ImportError:
     Chroma = None
     logger.info("langchain-chroma 未安装，Chroma 功能将不可用")
 
+# Chroma 持久化目录（写死，统一存放在 data/ 下）
+CHROMA_PERSIST_DIR = "./data/chroma_db"
+
 
 class KnowledgeRetriever:
     """知识库检索器
@@ -422,7 +425,7 @@ def create_pgvector_store(embeddings: Embeddings, collection_name: str = "craftf
         logger.warning("PGVector 未安装，无法创建 PGVector 存储")
         return None
 
-    if not settings.use_persistent_checkpointer or not settings.database_url:
+    if settings.checkpointer_backend != "postgres" or not settings.database_url:
         logger.info("未配置 PostgreSQL，跳过 PGVector 初始化")
         return None
 
@@ -447,12 +450,11 @@ def create_pgvector_store(embeddings: Embeddings, collection_name: str = "craftf
         return None
 
 
-def create_chroma_store(embeddings: Embeddings, persist_directory: str = "./chroma_db") -> VectorStore | None:
+def create_chroma_store(embeddings: Embeddings) -> VectorStore | None:
     """创建 Chroma 向量存储实例
 
     Args:
         embeddings: 嵌入模型实例
-        persist_directory: 持久化目录，默认 "./chroma_db"
 
     Returns:
         VectorStore | None: Chroma 实例，失败时返回 None
@@ -462,11 +464,11 @@ def create_chroma_store(embeddings: Embeddings, persist_directory: str = "./chro
         return None
 
     try:
-        logger.info(f"创建 Chroma 向量存储: {persist_directory}")
+        logger.info(f"创建 Chroma 向量存储: {CHROMA_PERSIST_DIR}")
 
         vector_store = Chroma(
             embedding_function=embeddings,
-            persist_directory=persist_directory,
+            persist_directory=CHROMA_PERSIST_DIR,
             collection_name="craftflow_docs",
         )
 
@@ -482,7 +484,6 @@ def initialize_knowledge_base(
     embeddings: Embeddings | None = None,
     prefer_backend: Literal["pgvector", "chroma"] = "pgvector",
     collection_name: str = "craftflow_docs",
-    chroma_persist_dir: str = "./chroma_db",
 ) -> bool:
     """初始化知识库检索器（自动降级）
 
@@ -493,7 +494,6 @@ def initialize_knowledge_base(
         embeddings: 嵌入模型实例（可选，不提供则自动创建）
         prefer_backend: 首选后端，默认 "pgvector"
         collection_name: 集合名称，默认 "craftflow_docs"
-        chroma_persist_dir: Chroma 持久化目录，默认 "./chroma_db"
 
     Returns:
         bool: 是否成功初始化
@@ -503,7 +503,7 @@ def initialize_knowledge_base(
         >>> success = initialize_knowledge_base()
         >>> if success:
         ...     print("知识库初始化成功")
-        
+
         >>> # 手动提供 Embeddings
         >>> from langchain_openai import OpenAIEmbeddings
         >>> embeddings = OpenAIEmbeddings()
@@ -544,13 +544,13 @@ def initialize_knowledge_base(
             else:
                 # 降级到 Chroma
                 logger.info("PGVector 不可用，尝试降级到 Chroma")
-                vector_store = create_chroma_store(embeddings, chroma_persist_dir)
+                vector_store = create_chroma_store(embeddings)
                 if vector_store:
                     backend = "chroma"
 
         else:  # prefer_backend == "chroma"
             # 先尝试 Chroma
-            vector_store = create_chroma_store(embeddings, chroma_persist_dir)
+            vector_store = create_chroma_store(embeddings)
             if vector_store:
                 backend = "chroma"
             else:

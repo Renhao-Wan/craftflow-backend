@@ -36,8 +36,8 @@ def main():
     logger.info(f"默认温度: {settings.default_temperature}")
     
     # 持久化配置
-    logger.info(f"\n使用持久化 Checkpointer: {settings.use_persistent_checkpointer}")
-    if settings.use_persistent_checkpointer:
+    logger.info(f"\nCheckpointer 后端: {settings.checkpointer_backend}")
+    if settings.checkpointer_backend == "postgres":
         logger.info(f"数据库 URL: {settings.database_url}")
     
     # 外部工具配置

@@ -3,7 +3,7 @@
 使用 aiosqlite 将已完成/失败的任务持久化到 SQLite 数据库。
 仅存储终态任务（completed / failed），运行中任务继续用 _tasks dict 内存管理。
 
-数据库路径：data/craftflow.db（相对于 craftflow-backend/）
+数据库路径：data/sqlite/tasks.db（相对于 craftflow-backend/）
 """
 
 import json
@@ -16,9 +16,9 @@ from app.core.logger import get_logger
 
 logger = get_logger(__name__)
 
-# 数据库文件路径：craftflow-backend/data/craftflow.db
-_DB_DIR = Path(__file__).resolve().parent.parent.parent / "data"
-_DB_PATH = _DB_DIR / "craftflow.db"
+# 数据库文件路径：craftflow-backend/data/sqlite/tasks.db
+_DB_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "sqlite"
+_DB_PATH = _DB_DIR / "tasks.db"
 
 _CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS tasks (

@@ -20,7 +20,6 @@ from app.core.exceptions import GraphExecutionError, TaskNotFoundError
 from app.core.logger import get_logger
 from app.graph.polishing.builder import get_polishing_graph
 from app.schemas.response import TaskResponse, TaskStatusResponse
-from app.services.checkpoint_cleaner import cleanup_checkpoint
 from app.services.task_store import TaskStore
 
 logger = get_logger(__name__)
@@ -112,7 +111,7 @@ class PolishingService:
         result: Optional[str] = None,
         error: Optional[str] = None,
     ) -> None:
-        """将终态任务保存到 SQLite 并清理 MemorySaver"""
+        """将终态任务保存到 SQLite 并释放内存"""
         task = self._tasks.get(task_id, {})
         request = task.get("request", {})
 
@@ -122,7 +121,7 @@ class PolishingService:
             f"mode: {request.get('mode')}, error: {error}"
         )
         try:
-            await self.task_store.save_task({
+            save_data = {
                 "task_id": task_id,
                 "graph_type": "polishing",
                 "status": status,
@@ -132,11 +131,13 @@ class PolishingService:
                 "progress": 100.0 if status == "completed" else 0.0,
                 "created_at": str(task.get("created_at", datetime.now())),
                 "updated_at": str(datetime.now()),
-            })
+            }
+            logger.debug(f"保存数据: {save_data}")
+            await self.task_store.save_task(save_data)
+            logger.info(f"SQLite 保存成功 - task_id: {task_id}")
         except Exception as e:
-            logger.error(f"保存任务到 SQLite 失败 - task_id: {task_id}, error: {e}")
+            logger.error(f"保存任务到 SQLite 失败 - task_id: {task_id}, error: {e}", exc_info=True)
 
-        await cleanup_checkpoint(self.checkpointer, thread_id)
         self._tasks.pop(task_id, None)
 
     # ============================================
@@ -402,7 +403,7 @@ class PolishingService:
             result = self._extract_result(graph_state)
             created_at = self._tasks[task_id]["created_at"]
 
-            # 持久化到 SQLite + 清理 MemorySaver + 释放 _tasks
+            # 持久化到 SQLite + 释放内存
             await self._persist_and_cleanup(
                 task_id, thread_id, "completed", result=result or "",
             )
@@ -413,7 +414,7 @@ class PolishingService:
             self._update_task(task_id, status="failed", error=str(e))
             logger.error(f"润色任务流式失败 - task_id: {task_id}, error: {e}")
 
-            # 持久化到 SQLite + 清理 MemorySaver + 释放 _tasks
+            # 持久化到 SQLite + 释放内存
             await self._persist_and_cleanup(
                 task_id, thread_id, "failed", error=str(e),
             )

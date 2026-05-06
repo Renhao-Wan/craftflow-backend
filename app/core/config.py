@@ -60,12 +60,12 @@ class Settings(BaseSettings):
     # ============================================
     # 状态持久化配置
     # ============================================
-    use_persistent_checkpointer: bool = Field(
-        default=False, description="是否使用持久化 Checkpointer"
+    checkpointer_backend: Literal["memory", "sqlite", "postgres"] = Field(
+        default="sqlite", description="Checkpointer 后端（memory / sqlite / postgres）"
     )
     database_url: str = Field(
         default="postgresql+asyncpg://user:password@localhost:5432/craftflow",
-        description="PostgreSQL 数据库连接 URL",
+        description="PostgreSQL 数据库连接 URL（checkpointer_backend=postgres 时必填）",
     )
     db_pool_size: int = Field(default=10, ge=1, le=100, description="数据库连接池大小")
     db_max_overflow: int = Field(default=20, ge=0, le=100, description="连接池最大溢出数")
@@ -84,9 +84,6 @@ class Settings(BaseSettings):
     )
     vector_db_backend: str = Field(
         default="pgvector", description="向量数据库后端 (pgvector / chroma)"
-    )
-    chroma_persist_dir: str = Field(
-        default="./chroma_db", description="Chroma 持久化目录"
     )
     vector_collection_name: str = Field(
         default="craftflow_docs", description="向量数据库集合名称"
@@ -162,8 +159,8 @@ class Settings(BaseSettings):
     @classmethod
     def validate_database_url(cls, v: str, info) -> str:
         """验证数据库 URL 格式"""
-        if info.data.get("use_persistent_checkpointer") and not v:
-            raise ValueError("启用持久化 Checkpointer 时必须提供有效的 database_url")
+        if info.data.get("checkpointer_backend") == "postgres" and not v:
+            raise ValueError("checkpointer_backend=postgres 时必须提供有效的 database_url")
         return v
 
     @property

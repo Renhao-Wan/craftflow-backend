@@ -1,7 +1,7 @@
 """Checkpointer 管理模块测试
 
 测试 Checkpointer 的初始化、获取、关闭和重置逻辑。
-使用 mock 隔离 PostgreSQL 连接和 Settings 配置。
+使用 mock 隔离外部依赖和 Settings 配置。
 """
 
 import pytest
@@ -36,9 +36,9 @@ class TestInitCheckpointer:
 
     @pytest.mark.asyncio
     async def test_init_memory_saver(self):
-        """测试初始化 MemorySaver（开发模式）"""
+        """测试初始化 MemorySaver（memory 模式）"""
         with patch("app.services.checkpointer.settings") as mock_settings:
-            mock_settings.use_persistent_checkpointer = False
+            mock_settings.checkpointer_backend = "memory"
 
             checkpointer = await init_checkpointer()
 
@@ -49,7 +49,7 @@ class TestInitCheckpointer:
     async def test_init_returns_singleton(self):
         """测试重复初始化返回同一实例"""
         with patch("app.services.checkpointer.settings") as mock_settings:
-            mock_settings.use_persistent_checkpointer = False
+            mock_settings.checkpointer_backend = "memory"
 
             cp1 = await init_checkpointer()
             cp2 = await init_checkpointer()
@@ -57,37 +57,65 @@ class TestInitCheckpointer:
             assert cp1 is cp2
 
     @pytest.mark.asyncio
+    async def test_init_sqlite_saver(self):
+        """测试初始化 SqliteSaver（sqlite 模式）"""
+        with patch("app.services.checkpointer.settings") as mock_settings:
+            mock_settings.checkpointer_backend = "sqlite"
+
+            checkpointer = await init_checkpointer()
+
+            assert checkpointer is not None
+            assert not isinstance(checkpointer, MemorySaver)
+
+    @pytest.mark.asyncio
     async def test_init_postgres_saver(self):
-        """测试初始化 PostgresSaver（生产模式）"""
+        """测试初始化 PostgresSaver（postgres 模式）"""
         mock_saver = AsyncMock()
+        mock_closer = AsyncMock()
 
         with (
             patch("app.services.checkpointer.settings") as mock_settings,
-            patch(
-                "app.services.checkpointer._create_postgres_saver",
+            patch.object(
+                __import__(
+                    "app.services.checkpointer", fromlist=["_FACTORIES"]
+                )._FACTORIES["postgres"],
+                "create",
                 new_callable=AsyncMock,
-                return_value=mock_saver,
-            ) as mock_create,
+                return_value=(mock_saver, mock_closer),
+            ),
         ):
-            mock_settings.use_persistent_checkpointer = True
+            mock_settings.checkpointer_backend = "postgres"
 
             checkpointer = await init_checkpointer()
 
             assert checkpointer is mock_saver
-            mock_create.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_init_invalid_backend_raises_error(self):
+        """测试无效后端名称抛出错误"""
+        with patch("app.services.checkpointer.settings") as mock_settings:
+            mock_settings.checkpointer_backend = "invalid"
+
+            with pytest.raises(CheckpointerError) as exc_info:
+                await init_checkpointer()
+
+            assert "未知的 Checkpointer 后端" in str(exc_info.value.message)
 
     @pytest.mark.asyncio
     async def test_init_failure_raises_checkpointer_error(self):
         """测试初始化失败时抛出 CheckpointerError"""
         with (
             patch("app.services.checkpointer.settings") as mock_settings,
-            patch(
-                "app.services.checkpointer._create_postgres_saver",
+            patch.object(
+                __import__(
+                    "app.services.checkpointer", fromlist=["_FACTORIES"]
+                )._FACTORIES["postgres"],
+                "create",
                 new_callable=AsyncMock,
                 side_effect=ConnectionError("连接失败"),
             ),
         ):
-            mock_settings.use_persistent_checkpointer = True
+            mock_settings.checkpointer_backend = "postgres"
 
             with pytest.raises(CheckpointerError) as exc_info:
                 await init_checkpointer()
@@ -114,7 +142,7 @@ class TestGetCheckpointer:
     async def test_get_after_init_returns_instance(self):
         """测试初始化后获取 Checkpointer 返回实例"""
         with patch("app.services.checkpointer.settings") as mock_settings:
-            mock_settings.use_persistent_checkpointer = False
+            mock_settings.checkpointer_backend = "memory"
 
             initialized = await init_checkpointer()
             retrieved = get_checkpointer()
@@ -134,7 +162,7 @@ class TestCloseCheckpointer:
     async def test_close_resets_singleton(self):
         """测试关闭后单例被重置"""
         with patch("app.services.checkpointer.settings") as mock_settings:
-            mock_settings.use_persistent_checkpointer = False
+            mock_settings.checkpointer_backend = "memory"
 
             await init_checkpointer()
             await close_checkpointer()
@@ -148,26 +176,21 @@ class TestCloseCheckpointer:
         await close_checkpointer()  # 应该静默完成
 
     @pytest.mark.asyncio
-    async def test_close_postgres_saver_closes_connection(self):
-        """测试关闭 PostgresSaver 时关闭连接"""
-        mock_conn = AsyncMock()
-        mock_saver = MagicMock()
-        mock_saver.conn = mock_conn
-
-        with (
-            patch("app.services.checkpointer.settings") as mock_settings,
-            patch(
-                "app.services.checkpointer._create_postgres_saver",
-                new_callable=AsyncMock,
-                return_value=mock_saver,
-            ),
-        ):
-            mock_settings.use_persistent_checkpointer = True
+    async def test_close_sqlite_saver_closes_connection(self):
+        """测试关闭 SqliteSaver 时关闭连接"""
+        with patch("app.services.checkpointer.settings") as mock_settings:
+            mock_settings.checkpointer_backend = "sqlite"
 
             await init_checkpointer()
+
+            cp = get_checkpointer()
+            conn = cp.conn
+
             await close_checkpointer()
 
-            mock_conn.close.assert_called_once()
+            # 连接应已关闭（再次关闭会报错说明已关）
+            with pytest.raises(Exception):
+                await conn.execute("SELECT 1")
 
 
 # ============================================
@@ -189,7 +212,7 @@ class TestResetCheckpointer:
     async def test_reset_allows_reinitialization(self):
         """测试重置后可以重新初始化"""
         with patch("app.services.checkpointer.settings") as mock_settings:
-            mock_settings.use_persistent_checkpointer = False
+            mock_settings.checkpointer_backend = "memory"
 
             cp1 = await init_checkpointer()
             reset_checkpointer()

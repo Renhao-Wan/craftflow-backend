@@ -12,6 +12,7 @@ dependencies = [
     "pydantic-settings>=2.7.0",
     "langgraph>=0.2.60",
     "langgraph-checkpoint>=2.0.10",
+    "langgraph-checkpoint-sqlite>=2.0.0",
     "langgraph-checkpoint-postgres>=2.0.14",
     "langchain>=0.3.14",
     "langchain-core>=0.3.28",

@@ -25,7 +25,6 @@ from app.core.exceptions import GraphExecutionError, TaskNotFoundError
 from app.core.logger import get_logger
 from app.graph.creation.builder import get_creation_graph
 from app.schemas.response import TaskResponse, TaskStatusResponse
-from app.services.checkpoint_cleaner import cleanup_checkpoint
 from app.services.task_store import TaskStore
 
 logger = get_logger(__name__)
@@ -110,7 +109,7 @@ class CreationService:
         outline_data: Optional[list] = None,
         error: Optional[str] = None,
     ) -> None:
-        """将终态任务保存到 SQLite 并清理 MemorySaver
+        """将终态任务保存到 SQLite 并释放内存
 
         Args:
             task_id: 任务 ID
@@ -125,13 +124,13 @@ class CreationService:
 
         # 保存到 SQLite
         logger.info(
-            f"持久化任务 - task_id: {task_id}, status: {status}, "
+            f"持久化创作任务 - task_id: {task_id}, status: {status}, "
             f"result_len: {len(result) if result else 0}, "
             f"outline_items: {len(outline_data) if outline_data else 0}, "
-            f"error: {error}"
+            f"topic: {request.get('topic')}, error: {error}"
         )
         try:
-            await self.task_store.save_task({
+            save_data = {
                 "task_id": task_id,
                 "graph_type": "creation",
                 "status": status,
@@ -143,12 +142,12 @@ class CreationService:
                 "progress": 100.0 if status == "completed" else 0.0,
                 "created_at": str(task.get("created_at", datetime.now())),
                 "updated_at": str(datetime.now()),
-            })
+            }
+            logger.debug(f"保存数据: {save_data}")
+            await self.task_store.save_task(save_data)
+            logger.info(f"SQLite 保存成功 - task_id: {task_id}")
         except Exception as e:
-            logger.error(f"保存任务到 SQLite 失败 - task_id: {task_id}, error: {e}")
-
-        # 清理 MemorySaver
-        await cleanup_checkpoint(self.checkpointer, thread_id)
+            logger.error(f"保存任务到 SQLite 失败 - task_id: {task_id}, error: {e}", exc_info=True)
 
         # 从 _tasks dict 移除
         self._tasks.pop(task_id, None)
@@ -530,7 +529,7 @@ class CreationService:
                         for item in raw_outline
                     ]
 
-                # 持久化到 SQLite + 清理 MemorySaver + 释放 _tasks
+                # 持久化到 SQLite + 释放内存
                 await self._persist_and_cleanup(
                     task_id, thread_id, "completed",
                     result=result or "", outline_data=outline_for_db,
@@ -569,7 +568,7 @@ class CreationService:
             self._update_task(task_id, status="failed", error=str(e))
             logger.error(f"创作任务流式失败 - task_id: {task_id}, error: {e}")
 
-            # 持久化到 SQLite + 清理 MemorySaver + 释放 _tasks
+            # 持久化到 SQLite + 释放内存
             await self._persist_and_cleanup(
                 task_id, thread_id, "failed", error=str(e),
             )
@@ -691,7 +690,7 @@ class CreationService:
                         for item in raw_outline
                     ]
 
-                # 持久化到 SQLite + 清理 MemorySaver + 释放 _tasks
+                # 持久化到 SQLite + 释放内存
                 await self._persist_and_cleanup(
                     task_id, thread_id, "completed",
                     result=result or "", outline_data=outline_for_db,
@@ -716,7 +715,7 @@ class CreationService:
             self._update_task(task_id, status="failed", error=str(e))
             logger.error(f"创作任务恢复流式失败 - task_id: {task_id}, error: {e}")
 
-            # 持久化到 SQLite + 清理 MemorySaver + 释放 _tasks
+            # 持久化到 SQLite + 释放内存
             await self._persist_and_cleanup(
                 task_id, thread_id, "failed", error=str(e),
             )
