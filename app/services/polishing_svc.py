@@ -20,6 +20,8 @@ from app.core.exceptions import GraphExecutionError, TaskNotFoundError
 from app.core.logger import get_logger
 from app.graph.polishing.builder import get_polishing_graph
 from app.schemas.response import TaskResponse, TaskStatusResponse
+from app.services.checkpoint_cleaner import cleanup_checkpoint
+from app.services.task_store import TaskStore
 
 logger = get_logger(__name__)
 
@@ -51,13 +53,15 @@ class PolishingService:
         _tasks: 任务元数据存储
     """
 
-    def __init__(self, checkpointer: BaseCheckpointSaver) -> None:
+    def __init__(self, checkpointer: BaseCheckpointSaver, task_store: TaskStore) -> None:
         """初始化 Polishing Service
 
         Args:
             checkpointer: LangGraph Checkpointer 实例
+            task_store: SQLite 任务持久化存储
         """
         self.checkpointer = checkpointer
+        self.task_store = task_store
         self._graph = None
         self._tasks: dict[str, dict[str, Any]] = {}
 
@@ -99,6 +103,41 @@ class PolishingService:
     def _build_config(self, thread_id: str) -> dict:
         """构建 LangGraph 执行配置"""
         return {"configurable": {"thread_id": thread_id}}
+
+    async def _persist_and_cleanup(
+        self,
+        task_id: str,
+        thread_id: str,
+        status: str,
+        result: Optional[str] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        """将终态任务保存到 SQLite 并清理 MemorySaver"""
+        task = self._tasks.get(task_id, {})
+        request = task.get("request", {})
+
+        logger.info(
+            f"持久化润色任务 - task_id: {task_id}, status: {status}, "
+            f"result_len: {len(result) if result else 0}, "
+            f"mode: {request.get('mode')}, error: {error}"
+        )
+        try:
+            await self.task_store.save_task({
+                "task_id": task_id,
+                "graph_type": "polishing",
+                "status": status,
+                "mode": request.get("mode"),
+                "result": result or "",
+                "error": error,
+                "progress": 100.0 if status == "completed" else 0.0,
+                "created_at": str(task.get("created_at", datetime.now())),
+                "updated_at": str(datetime.now()),
+            })
+        except Exception as e:
+            logger.error(f"保存任务到 SQLite 失败 - task_id: {task_id}, error: {e}")
+
+        await cleanup_checkpoint(self.checkpointer, thread_id)
+        self._tasks.pop(task_id, None)
 
     # ============================================
     # 公开 API
@@ -356,14 +395,29 @@ class PolishingService:
             self._update_task(task_id, status="completed")
             logger.info(f"润色任务流式完成 - task_id: {task_id}")
 
-            result = self._extract_result(final_state)
-            await broadcaster.broadcast_result(
-                task_id, result or "", self._tasks[task_id]["created_at"],
+            # 从 checkpoint 读取最终状态（比 astream 的 final_state 更可靠）
+            snapshot = await graph.aget_state(config)
+            graph_state = snapshot.values if snapshot else {}
+
+            result = self._extract_result(graph_state)
+            created_at = self._tasks[task_id]["created_at"]
+
+            # 持久化到 SQLite + 清理 MemorySaver + 释放 _tasks
+            await self._persist_and_cleanup(
+                task_id, thread_id, "completed", result=result or "",
             )
+
+            await broadcaster.broadcast_result(task_id, result or "", created_at)
 
         except Exception as e:
             self._update_task(task_id, status="failed", error=str(e))
             logger.error(f"润色任务流式失败 - task_id: {task_id}, error: {e}")
+
+            # 持久化到 SQLite + 清理 MemorySaver + 释放 _tasks
+            await self._persist_and_cleanup(
+                task_id, thread_id, "failed", error=str(e),
+            )
+
             await broadcaster.broadcast_error(task_id, str(e))
 
     # ============================================

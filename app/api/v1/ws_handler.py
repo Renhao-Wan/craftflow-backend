@@ -5,9 +5,10 @@
 """
 
 import asyncio
+import json
 from typing import Any
 
-from app.api.dependencies import get_creation_service, get_polishing_service
+from app.api.dependencies import get_creation_service, get_polishing_service, get_task_store
 from app.core.logger import get_logger
 from app.schemas.ws_message import (
     CreateCreationMessage,
@@ -166,17 +167,55 @@ async def _handle_get_task_status(
     client_id: str,
     broadcaster: TaskBroadcaster,
 ) -> None:
-    """查询任务状态 — 同时查 creation 和 polishing，修复 TASK_NOT_FOUND bug"""
+    """查询任务状态 — 先查内存，再回退 SQLite"""
     creation_svc = get_creation_service()
     polishing_svc = get_polishing_service()
 
     try:
-        # 先查 creation
+        # 先查内存中的 running/interrupted 任务
+        status = None
         try:
             status = await creation_svc.get_task_status(msg.task_id)
         except Exception:
-            # 再查 polishing
-            status = await polishing_svc.get_task_status(msg.task_id)
+            try:
+                status = await polishing_svc.get_task_status(msg.task_id)
+            except Exception:
+                pass
+
+        # 内存未找到，回退查询 SQLite（completed/failed 的终态任务）
+        if status is None:
+            store = get_task_store()
+            row = await store.get_task(msg.task_id)
+            if row is None:
+                raise Exception(f"任务不存在: {msg.task_id}")
+
+            # 从 SQLite 列重建 data 字段
+            data = None
+            if row.get("outline"):
+                try:
+                    data = {"outline": json.loads(row["outline"])}
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            # 将 SQLite 行数据转为与 TaskStatusResponse 兼容的格式
+            await broadcaster.send_to(
+                client_id,
+                {
+                    "type": "task_status",
+                    "requestId": msg.request_id,
+                    "taskId": row["task_id"],
+                    "status": row["status"],
+                    "currentNode": None,
+                    "awaiting": None,
+                    "data": data,
+                    "result": row.get("result"),
+                    "error": row.get("error"),
+                    "progress": row.get("progress"),
+                    "createdAt": row.get("created_at"),
+                    "updatedAt": row.get("updated_at"),
+                },
+            )
+            return
 
         await broadcaster.send_to(
             client_id,
