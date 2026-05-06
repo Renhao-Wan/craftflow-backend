@@ -101,6 +101,32 @@ class CreationService:
         """构建 LangGraph 执行配置"""
         return {"configurable": {"thread_id": thread_id}}
 
+    async def _persist_interrupted(self, task_id: str) -> None:
+        """将中断状态的任务保存到 SQLite
+
+        与 _persist_and_cleanup 的区别：
+        - 不清理 checkpoint（恢复时需要图状态）
+        - 不从 _tasks dict 移除（恢复时需要元数据）
+        - 不存储 outline（outline 在 checkpoint 中，避免数据重复）
+        """
+        task = self._tasks.get(task_id, {})
+        request = task.get("request", {})
+
+        try:
+            await self.task_store.save_task({
+                "task_id": task_id,
+                "graph_type": "creation",
+                "status": "interrupted",
+                "topic": request.get("topic"),
+                "description": request.get("description"),
+                "progress": 30.0,
+                "created_at": str(task.get("created_at", datetime.now())),
+                "updated_at": str(datetime.now()),
+            })
+            logger.info(f"中断任务已持久化 - task_id: {task_id}")
+        except Exception as e:
+            logger.error(f"持久化中断任务失败 - task_id: {task_id}, error: {e}", exc_info=True)
+
     async def _persist_and_cleanup(
         self,
         task_id: str,
@@ -117,7 +143,7 @@ class CreationService:
             thread_id: thread_id（等于 task_id）
             status: 终态（completed / failed）
             result: 最终结果文本
-            outline_data: 大纲数据（用于持久化）
+            outline_data: 大纲数据（仅用于日志，不持久化到 TaskStore）
             error: 错误信息（failed 时）
         """
         task = self._tasks.get(task_id, {})
@@ -138,7 +164,6 @@ class CreationService:
                 "topic": request.get("topic"),
                 "description": request.get("description"),
                 "result": result or "",
-                "outline": json.dumps(outline_data, ensure_ascii=False) if outline_data else None,
                 "error": error,
                 "progress": 100.0 if status == "completed" else 0.0,
                 "created_at": str(task.get("created_at", datetime.now())),
@@ -241,6 +266,7 @@ class CreationService:
         except GraphInterrupt as e:
             # 图在 outline_confirmation 中断点暂停（不清理，等待恢复）
             self._update_task(task_id, status="interrupted")
+            await self._persist_interrupted(task_id)
             logger.info(f"创作任务暂停（大纲待确认）- task_id: {task_id}")
 
             return TaskResponse(
@@ -335,6 +361,7 @@ class CreationService:
         except GraphInterrupt:
             # 可能出现二次中断（当前设计不会，但防御性处理）
             self._update_task(task_id, status="interrupted")
+            await self._persist_interrupted(task_id)
             logger.warning(f"创作任务再次中断 - task_id: {task_id}")
 
             return TaskResponse(
@@ -382,7 +409,7 @@ class CreationService:
         # 1. 先查内存（running / interrupted 任务）
         task = self._tasks.get(task_id)
 
-        # 2. 内存未找到，查 TaskStore（completed / failed 任务）
+        # 2. 内存未找到，查 TaskStore
         if task is None:
             row = await self.task_store.get_task(task_id)
             if row is None:
@@ -396,11 +423,16 @@ class CreationService:
                 except (json.JSONDecodeError, TypeError):
                     pass
 
+            # 中断任务的 awaiting 字段
+            awaiting = None
+            if row["status"] == "interrupted":
+                awaiting = "outline_confirmation"
+
             return TaskStatusResponse(
                 task_id=task_id,
                 status=row["status"],
                 current_node=None,
-                awaiting=None,
+                awaiting=awaiting,
                 data=data,
                 result=row.get("result"),
                 error=row.get("error"),
@@ -560,6 +592,7 @@ class CreationService:
             if has_pending_interrupt:
                 # 图在中断点暂停（大纲待确认）
                 self._update_task(task_id, status="interrupted")
+                await self._persist_interrupted(task_id)
                 logger.info(f"创作任务流式暂停（大纲待确认）- task_id: {task_id}")
 
                 graph_state = snapshot.values if snapshot else {}
@@ -612,6 +645,7 @@ class CreationService:
 
         except GraphInterrupt:
             self._update_task(task_id, status="interrupted")
+            await self._persist_interrupted(task_id)
             logger.info(f"创作任务流式暂停（大纲待确认）- task_id: {task_id}")
 
             # 获取大纲数据用于推送
@@ -734,6 +768,7 @@ class CreationService:
 
             if has_pending_interrupt:
                 self._update_task(task_id, status="interrupted")
+                await self._persist_interrupted(task_id)
                 logger.info(f"创作任务恢复后再次中断 - task_id: {task_id}")
                 await broadcaster.broadcast_update(
                     task_id,
@@ -773,6 +808,7 @@ class CreationService:
 
         except GraphInterrupt:
             self._update_task(task_id, status="interrupted")
+            await self._persist_interrupted(task_id)
             logger.warning(f"创作任务再次中断 - task_id: {task_id}")
             await broadcaster.broadcast_update(
                 task_id,

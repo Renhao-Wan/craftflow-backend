@@ -1,12 +1,11 @@
 """SQLite 任务持久化存储
 
-使用 aiosqlite 将已完成/失败的任务持久化到 SQLite 数据库。
-仅存储终态任务（completed / failed），运行中任务继续用 _tasks dict 内存管理。
+使用 aiosqlite 将终态任务（completed / failed）和中断任务（interrupted）持久化到 SQLite。
+运行中任务（running）继续用 _tasks dict 内存管理。
 
-数据库路径：data/sqlite/tasks.db（相对于 craftflow-backend/）
+数据库路径：data/sqlite/craftflow.db（相对于 craftflow-backend/）
 """
 
-import json
 from pathlib import Path
 from typing import Any, Optional
 
@@ -16,9 +15,9 @@ from app.core.logger import get_logger
 
 logger = get_logger(__name__)
 
-# 数据库文件路径：craftflow-backend/data/sqlite/tasks.db
+# 数据库文件路径：craftflow-backend/data/sqlite/craftflow.db
 _DB_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "sqlite"
-_DB_PATH = _DB_DIR / "tasks.db"
+_DB_PATH = _DB_DIR / "craftflow.db"
 
 _CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS tasks (
@@ -27,10 +26,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     status TEXT NOT NULL,
     topic TEXT,
     description TEXT,
-    content TEXT,
     mode INTEGER,
     result TEXT,
-    outline TEXT,
     error TEXT,
     progress REAL DEFAULT 100.0,
     created_at TEXT NOT NULL,
@@ -74,19 +71,17 @@ class TaskStore:
 
         await self._db.execute(
             """INSERT OR REPLACE INTO tasks
-            (task_id, graph_type, status, topic, description, content, mode,
-             result, outline, error, progress, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (task_id, graph_type, status, topic, description, mode,
+             result, error, progress, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 task["task_id"],
                 task["graph_type"],
                 task["status"],
                 task.get("topic"),
                 task.get("description"),
-                task.get("content"),
                 task.get("mode"),
                 task.get("result"),
-                task.get("outline"),
                 task.get("error"),
                 task.get("progress", 100.0),
                 task["created_at"],
@@ -112,6 +107,22 @@ class TaskStore:
         if row is None:
             return None
         return _row_to_dict(cursor, row)
+
+    async def get_interrupted_tasks(self) -> list[dict[str, Any]]:
+        """查询所有中断状态的任务（用于服务重启后恢复到内存）
+
+        Returns:
+            中断状态的任务数据字典列表，按创建时间降序
+        """
+        if self._db is None:
+            raise RuntimeError("TaskStore 未初始化")
+
+        cursor = await self._db.execute(
+            "SELECT * FROM tasks WHERE status = ? ORDER BY created_at DESC",
+            ("interrupted",),
+        )
+        rows = await cursor.fetchall()
+        return [_row_to_dict(cursor, row) for row in rows]
 
     async def get_task_list(
         self, limit: int = 50, offset: int = 0,

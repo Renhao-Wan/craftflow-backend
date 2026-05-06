@@ -261,7 +261,7 @@ class PolishingService:
     ) -> TaskStatusResponse:
         """查询润色任务状态
 
-        查询顺序：内存 _tasks（running）→ TaskStore（completed/failed）
+        查询顺序：内存 _tasks（running/interrupted）→ TaskStore（completed/failed/interrupted）
 
         Args:
             task_id: 任务 ID
@@ -274,20 +274,25 @@ class PolishingService:
         Raises:
             TaskNotFoundError: 任务不存在时抛出
         """
-        # 1. 先查内存（running 任务）
+        # 1. 先查内存（running / interrupted 任务）
         task = self._tasks.get(task_id)
 
-        # 2. 内存未找到，查 TaskStore（completed / failed 任务）
+        # 2. 内存未找到，查 TaskStore
         if task is None:
             row = await self.task_store.get_task(task_id)
             if row is None:
                 raise TaskNotFoundError(task_id=task_id)
 
+            # 中断任务的 awaiting 字段（Polishing 无 HITL，但防御性处理）
+            awaiting = None
+            if row["status"] == "interrupted":
+                awaiting = "outline_confirmation"
+
             return TaskStatusResponse(
                 task_id=task_id,
                 status=row["status"],
                 current_node=None,
-                awaiting=None,
+                awaiting=awaiting,
                 data=None,
                 result=row.get("result"),
                 error=row.get("error"),
@@ -298,7 +303,7 @@ class PolishingService:
                 updated_at=row.get("updated_at"),
             )
 
-        # 3. 内存中找到（running），从 checkpoint 读取图状态
+        # 3. 内存中找到（running / interrupted），从 checkpoint 读取图状态
         thread_id = task["thread_id"]
         config = self._build_config(thread_id)
         graph = self._get_graph()

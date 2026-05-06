@@ -15,6 +15,8 @@
         ...
 """
 
+from datetime import datetime as dt
+
 from app.core.exceptions import CheckpointerError
 from app.core.logger import get_logger
 from app.services.checkpointer import get_checkpointer
@@ -37,6 +39,7 @@ async def init_services() -> None:
     """初始化所有业务服务
 
     在应用启动时调用，必须在 init_checkpointer() 之后执行。
+    启动时从 TaskStore 加载中断任务到内存，确保服务重启后可恢复。
 
     Raises:
         CheckpointerError: Checkpointer 尚未初始化
@@ -51,7 +54,66 @@ async def init_services() -> None:
     _creation_service = CreationService(checkpointer=checkpointer, task_store=_task_store)
     _polishing_service = PolishingService(checkpointer=checkpointer, task_store=_task_store)
 
+    # 从 TaskStore 加载中断任务到内存（服务重启恢复）
+    await _load_interrupted_tasks(_creation_service, _polishing_service, _task_store)
+
     logger.info("业务服务初始化完成（CreationService, PolishingService, TaskStore）")
+
+
+async def _load_interrupted_tasks(
+    creation_svc: CreationService,
+    polishing_svc: PolishingService,
+    task_store: TaskStore,
+) -> None:
+    """从 TaskStore 加载中断任务到服务内存
+
+    服务重启后，将 SQLite 中的 interrupted 任务恢复到 _tasks dict，
+    使用户可以继续恢复这些任务。
+    """
+    interrupted = await task_store.get_interrupted_tasks()
+    if not interrupted:
+        return
+
+    loaded = 0
+    for row in interrupted:
+        task_id = row["task_id"]
+        graph_type = row["graph_type"]
+
+        if graph_type == "creation":
+            svc = creation_svc
+            request: dict = {
+                "topic": row.get("topic"),
+                "description": row.get("description"),
+            }
+        elif graph_type == "polishing":
+            svc = polishing_svc
+            request = {
+                "mode": row.get("mode"),
+            }
+        else:
+            logger.warning(f"未知的 graph_type: {graph_type}, task_id: {task_id}")
+            continue
+
+        # 避免覆盖内存中已有的任务
+        if task_id in svc._tasks:
+            continue
+
+        created_at = row.get("created_at")
+        updated_at = row.get("updated_at")
+
+        svc._tasks[task_id] = {
+            "task_id": task_id,
+            "thread_id": task_id,
+            "graph_type": graph_type,
+            "status": "interrupted",
+            "request": request,
+            "created_at": created_at if isinstance(created_at, dt) else dt.now(),
+            "updated_at": updated_at if isinstance(updated_at, dt) else dt.now(),
+        }
+        loaded += 1
+
+    if loaded > 0:
+        logger.info(f"已从 SQLite 加载 {loaded} 个中断任务")
 
 
 async def close_services() -> None:

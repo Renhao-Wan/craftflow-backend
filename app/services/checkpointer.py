@@ -7,7 +7,7 @@
 
 数据库文件统一存放在 data/ 目录下：
 - data/checkpoints/checkpoints.db  （SqliteSaver）
-- data/sqlite/tasks.db             （TaskStore）
+- data/sqlite/craftflow.db          （TaskStore）
 - data/chroma_db/                  （Chroma 向量数据库）
 
 使用模块级单例确保全局只有一个 Checkpointer 实例。
