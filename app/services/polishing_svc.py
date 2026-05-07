@@ -115,18 +115,22 @@ class PolishingService:
         """将终态任务保存到 SQLite 并释放内存"""
         task = self._tasks.get(task_id, {})
         request = task.get("request", {})
+        content = request.get("content", "")
+        mode = request.get("mode")
 
         logger.info(
             f"持久化润色任务 - task_id: {task_id}, status: {status}, "
             f"result_len: {len(result) if result else 0}, "
-            f"mode: {request.get('mode')}, error: {error}"
+            f"mode: {mode}, error: {error}"
         )
         try:
             save_data = {
                 "task_id": task_id,
                 "graph_type": "polishing",
                 "status": status,
-                "mode": request.get("mode"),
+                "topic": self._extract_topic(content) if content else None,
+                "content": content,
+                "mode": mode,
                 "result": result or "",
                 "error": error,
                 "progress": 100.0 if status == "completed" else 0.0,
@@ -175,7 +179,7 @@ class PolishingService:
             task_id=task_id,
             thread_id=thread_id,
             status="running",
-            request_data={"content_length": len(content), "mode": mode},
+            request_data={"content": content, "mode": mode},
         )
 
         initial_state = {
@@ -288,12 +292,20 @@ class PolishingService:
             if row["status"] == "interrupted":
                 awaiting = "outline_confirmation"
 
+            # 构造 data 字段（前端对比视图需要 original_content）
+            data = None
+            if row.get("content") or row.get("mode"):
+                data = {
+                    "original_content": row.get("content", ""),
+                    "mode": row.get("mode"),
+                }
+
             return TaskStatusResponse(
                 task_id=task_id,
                 status=row["status"],
                 current_node=None,
                 awaiting=awaiting,
-                data=None,
+                data=data,
                 result=row.get("result"),
                 error=row.get("error"),
                 progress=row.get("progress"),
@@ -376,7 +388,7 @@ class PolishingService:
             task_id=task_id,
             thread_id=thread_id,
             status="running",
-            request_data={"content_length": len(content), "mode": mode},
+            request_data={"content": content, "mode": mode},
         )
 
         # 自动订阅
@@ -495,6 +507,22 @@ class PolishingService:
             return fact_check_result
 
         return None
+
+    @staticmethod
+    def _extract_topic(content: str) -> str:
+        """从 Markdown 内容提取主题（标题或前 15 字）
+
+        优先取第一个 Markdown 标题（# 开头），否则取第一行非空前 15 字。
+        """
+        for line in content.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith("# "):
+                return stripped[2:].strip()[:100]
+            # 非标题行，取前 15 字
+            return stripped[:15] + "..." if len(stripped) > 15 else stripped
+        return "润色任务"
 
     @staticmethod
     def _calculate_progress(state: dict, status: str) -> float:

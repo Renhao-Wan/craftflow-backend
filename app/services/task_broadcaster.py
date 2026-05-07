@@ -115,8 +115,13 @@ class TaskBroadcaster:
         result: str,
         created_at: Any = None,
         updated_at: Any = None,
+        data: dict[str, Any] | None = None,
     ) -> None:
-        """广播任务完成"""
+        """广播任务完成
+
+        Args:
+            data: 附加数据（如 original_content、mode），透传给前端
+        """
         message: dict[str, Any] = {
             "type": "task_result",
             "taskId": task_id,
@@ -126,6 +131,8 @@ class TaskBroadcaster:
             message["createdAt"] = str(created_at)
         if updated_at:
             message["updatedAt"] = str(updated_at)
+        if data:
+            message["data"] = data
         await self._send_to_subscribers(task_id, message)
 
     async def broadcast_error(self, task_id: str, error: str) -> None:

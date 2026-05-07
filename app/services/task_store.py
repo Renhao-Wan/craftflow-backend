@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     status TEXT NOT NULL,
     topic TEXT,
     description TEXT,
+    content TEXT,
     mode INTEGER,
     result TEXT,
     error TEXT,
@@ -65,21 +66,23 @@ class TaskStore:
 
         Args:
             task: 任务数据字典，必须包含 task_id, graph_type, status, created_at, updated_at
+                  可选: topic, description, content, mode, result, error, progress
         """
         if self._db is None:
             raise RuntimeError("TaskStore 未初始化，请先调用 init_db()")
 
         await self._db.execute(
             """INSERT OR REPLACE INTO tasks
-            (task_id, graph_type, status, topic, description, mode,
+            (task_id, graph_type, status, topic, description, content, mode,
              result, error, progress, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 task["task_id"],
                 task["graph_type"],
                 task["status"],
                 task.get("topic"),
                 task.get("description"),
+                task.get("content"),
                 task.get("mode"),
                 task.get("result"),
                 task.get("error"),
