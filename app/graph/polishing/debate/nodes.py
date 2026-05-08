@@ -83,20 +83,36 @@ async def author_node(state: DebateState) -> dict[str, Any]:
     content = state.get("content", "")
     editor_feedback = state.get("editor_feedback", "")
     editor_score = state.get("editor_score", 0)
+    fact_check_result = state.get("fact_check_result", "")
 
     logger.info(f"AuthorNode 开始执行 - 当前评分: {editor_score}")
 
     try:
         llm = get_default_llm()
 
-        # 如果没有编辑反馈（第一轮），使用默认提示
+        # 首轮：没有编辑反馈时，给出针对性的首轮指令
         if not editor_feedback:
-            editor_feedback = "这是第一轮润色，请对文章进行全面优化。"
+            editor_feedback = (
+                "这是第一轮润色。请对文章进行全面深度重写，重点改进：\n"
+                "1. 语言表达的精准度和流畅度\n"
+                "2. 段落间的逻辑衔接\n"
+                "3. 论据的充实度\n"
+                "4. 文章结构的合理性\n"
+                "请大胆改动，不要只做微调。"
+            )
+
+        # 构建事实核查上下文
+        fact_check_context = ""
+        if fact_check_result:
+            fact_check_context = (
+                f"**事实核查报告**（请优先修正报告中标注的问题）：\n{fact_check_result}"
+            )
 
         human_message = AUTHOR_HUMAN_PROMPT.format(
             content=content,
             editor_feedback=editor_feedback,
             editor_score=editor_score,
+            fact_check_context=fact_check_context,
         )
 
         messages = [

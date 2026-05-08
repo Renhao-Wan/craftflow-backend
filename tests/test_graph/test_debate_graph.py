@@ -28,6 +28,7 @@ def _make_debate_state(**overrides) -> DebateState:
     base: DebateState = {
         "content": "原始内容",
         "topic": None,
+        "fact_check_result": None,
         "current_iteration": 1,
         "max_iterations": 3,
         "pass_score": 90,
@@ -216,6 +217,7 @@ def _build_initial_state() -> DebateState:
     return {
         "content": "测试文章",
         "topic": None,
+        "fact_check_result": None,
         "current_iteration": 0,
         "max_iterations": 3,
         "pass_score": 90,

@@ -75,6 +75,7 @@ class TestConditionalEdges:
             "mode": 1,
             "current_node": "router",
             "error": None,
+            "needs_revision": False,
             "formatted_content": None,
             "fact_check_result": None,
             "debate_history": [],
@@ -92,6 +93,7 @@ class TestConditionalEdges:
             "mode": 2,
             "current_node": "router",
             "error": None,
+            "needs_revision": False,
             "formatted_content": None,
             "fact_check_result": None,
             "debate_history": [],
@@ -109,6 +111,7 @@ class TestConditionalEdges:
             "mode": 3,
             "current_node": "router",
             "error": None,
+            "needs_revision": False,
             "formatted_content": None,
             "fact_check_result": None,
             "debate_history": [],
@@ -124,6 +127,7 @@ class TestConditionalEdges:
         state: DebateState = {
             "content": "测试内容",
             "topic": None,
+            "fact_check_result": None,
             "current_iteration": 1,
             "max_iterations": 3,
             "pass_score": 90,
@@ -143,6 +147,7 @@ class TestConditionalEdges:
         state: DebateState = {
             "content": "测试内容",
             "topic": None,
+            "fact_check_result": None,
             "current_iteration": 3,
             "max_iterations": 3,
             "pass_score": 90,
@@ -162,6 +167,7 @@ class TestConditionalEdges:
         state: DebateState = {
             "content": "测试内容",
             "topic": None,
+            "fact_check_result": None,
             "current_iteration": 1,
             "max_iterations": 3,
             "pass_score": 90,
@@ -193,6 +199,7 @@ class TestRouterNode:
             "mode": 1,
             "current_node": None,
             "error": None,
+            "needs_revision": False,
             "formatted_content": None,
             "fact_check_result": None,
             "debate_history": [],
@@ -222,6 +229,7 @@ class TestRouterNode:
                 "mode": 2,  # 默认值
                 "current_node": None,
                 "error": None,
+                "needs_revision": False,
                 "formatted_content": None,
                 "fact_check_result": None,
                 "debate_history": [],
@@ -254,6 +262,7 @@ class TestFormatterNode:
                 "mode": 1,
                 "current_node": "router",
                 "error": None,
+                "needs_revision": False,
                 "formatted_content": None,
                 "fact_check_result": None,
                 "debate_history": [],
@@ -291,6 +300,7 @@ class TestFactCheckerNode:
                 "mode": 3,
                 "current_node": "router",
                 "error": None,
+                "needs_revision": False,
                 "formatted_content": None,
                 "fact_check_result": None,
                 "debate_history": [],
@@ -303,6 +313,7 @@ class TestFactCheckerNode:
             result = await fact_checker_node(state)
 
             assert "fact_check_result" in result
+            assert "needs_revision" in result
             assert result["current_node"] == "fact_checker"
 
 
@@ -322,6 +333,7 @@ class TestAuthorNode:
             state: DebateState = {
                 "content": "原始内容",
                 "topic": None,
+                "fact_check_result": None,
                 "current_iteration": 1,
                 "max_iterations": 3,
                 "pass_score": 90,
@@ -368,6 +380,7 @@ class TestEditorNode:
             state: DebateState = {
                 "content": "测试内容",
                 "topic": None,
+                "fact_check_result": None,
                 "current_iteration": 1,
                 "max_iterations": 3,
                 "pass_score": 90,

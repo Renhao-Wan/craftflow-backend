@@ -39,6 +39,7 @@ class PolishingState(TypedDict):
     # 流程控制
     current_node: Optional[str]
     error: Optional[str]
+    needs_revision: bool  # Mode 3: 核查发现问题后需要进入修正流程
 
     # 中间结果
     formatted_content: Optional[str]

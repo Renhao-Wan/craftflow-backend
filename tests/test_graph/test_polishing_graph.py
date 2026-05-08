@@ -27,6 +27,7 @@ def _make_polishing_state(mode: int = 2, **overrides) -> PolishingState:
         "mode": mode,
         "current_node": None,
         "error": None,
+        "needs_revision": False,
         "formatted_content": None,
         "fact_check_result": None,
         "debate_history": [],
@@ -83,6 +84,7 @@ def _make_debate_result(
     return {
         "content": "测试文章内容",
         "topic": None,
+        "fact_check_result": None,
         "current_iteration": 1,
         "max_iterations": 3,
         "pass_score": 90,
@@ -284,8 +286,8 @@ class TestPolishingMode3:
     """测试 Mode 3: 事实核查"""
 
     @pytest.mark.asyncio
-    async def test_mode3_fact_checker(self):
-        """测试 Mode 3 路由到 fact_checker 并返回核查结果"""
+    async def test_mode3_no_issues(self):
+        """测试 Mode 3 核查无问题时直接返回"""
         mock_router = AsyncMock(return_value={
             "mode": 3,
             "current_node": "router",
@@ -293,8 +295,9 @@ class TestPolishingMode3:
         })
         mock_fact_checker = AsyncMock(return_value={
             "fact_check_result": "事实核查完成，准确性: high",
+            "needs_revision": False,
             "current_node": "fact_checker",
-            "messages": [AIMessage(content="事实核查完成")],
+            "messages": [AIMessage(content="事实核查完成，未发现明显问题")],
         })
 
         graph = _rebuild_graph(
@@ -306,8 +309,50 @@ class TestPolishingMode3:
         result = await graph.ainvoke(state)
 
         assert result["fact_check_result"] is not None
-        assert "high" in result["fact_check_result"]
+        assert result["needs_revision"] is False
         mock_fact_checker.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_mode3_with_issues_goes_to_debate(self):
+        """测试 Mode 3 核查有问题时进入 debate 修正"""
+        mock_router = AsyncMock(return_value={
+            "mode": 3,
+            "current_node": "router",
+            "messages": [AIMessage(content="已选择润色模式: 3")],
+        })
+        mock_fact_checker = AsyncMock(return_value={
+            "fact_check_result": "发现 2 个事实问题",
+            "needs_revision": True,
+            "current_node": "fact_checker",
+            "messages": [AIMessage(content="事实核查完成，发现 2 个问题")],
+        })
+
+        debate_result = _make_debate_result(
+            final_content="修正后的文章",
+            editor_score=92,
+            is_passed=True,
+        )
+        mock_debate = AsyncMock(return_value={
+            "final_content": debate_result["final_content"],
+            "debate_history": debate_result["debate_history"],
+            "overall_score": debate_result["editor_score"],
+            "current_node": "debate",
+            "messages": [AIMessage(content="对抗审查完成")],
+        })
+
+        graph = _rebuild_graph(
+            router_node=mock_router,
+            fact_checker_node=mock_fact_checker,
+            debate_node=mock_debate,
+        )
+
+        state = _make_polishing_state(mode=3)
+        result = await graph.ainvoke(state)
+
+        assert result["final_content"] == "修正后的文章"
+        assert result["needs_revision"] is True
+        mock_fact_checker.assert_called_once()
+        mock_debate.assert_called_once()
 
 
 # ============================================

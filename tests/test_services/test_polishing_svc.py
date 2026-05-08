@@ -127,6 +127,8 @@ class TestStartTask:
         assert saved_data["status"] == "completed"
         assert saved_data["graph_type"] == "polishing"
         assert saved_data["mode"] == 2
+        assert saved_data["content"] == content
+        assert saved_data["topic"] is not None
         assert result.task_id not in service._tasks
 
     @pytest.mark.asyncio

@@ -21,6 +21,7 @@ class DebateState(TypedDict):
     # 输入字段
     content: str
     topic: Optional[str]
+    fact_check_result: Optional[str]  # Mode 3: 事实核查报告，供 Author 修正参考
 
     # 对抗循环控制
     current_iteration: int

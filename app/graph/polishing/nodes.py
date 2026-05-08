@@ -12,7 +12,7 @@ import json
 import re
 from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from app.core.logger import get_logger
 from app.graph.common.llm_factory import get_default_llm
@@ -192,16 +192,20 @@ async def formatter_node(state: PolishingState) -> dict[str, Any]:
 # ============================================
 
 
-async def fact_checker_node(state: PolishingState) -> dict[str, Any]:
-    """FactCheckerNode: 事实核查
+MAX_TOOL_ROUNDS = 3
 
-    对文章中的事实性内容进行核查，使用搜索工具验证关键事实。
+
+async def fact_checker_node(state: PolishingState) -> dict[str, Any]:
+    """FactCheckerNode: 事实核查（含搜索工具 agent loop）
+
+    对文章中的事实性内容进行核查，通过 agent loop 调用搜索工具验证关键事实。
+    核查完成后判断是否需要进入修正流程。
 
     Args:
         state: 当前图状态
 
     Returns:
-        dict: 状态增量更新
+        dict: 状态增量更新（含 needs_revision 标记）
     """
     content = state.get("content", "")
 
@@ -213,29 +217,83 @@ async def fact_checker_node(state: PolishingState) -> dict[str, Any]:
 
         human_message = FACT_CHECKER_HUMAN_PROMPT.format(content=content)
 
-        messages = [
+        messages: list = [
             SystemMessage(content=FACT_CHECKER_SYSTEM_PROMPT),
             HumanMessage(content=human_message),
         ]
 
-        response = await llm_with_tools.ainvoke(messages)
-        response_content = response.content if isinstance(response.content, str) else str(response.content)
+        # Agent loop: LLM → 执行 tool_calls → 结果喂回 LLM → 重复
+        tool_map = {t.name: t for t in SEARCH_TOOLS}
 
-        # 解析核查结果
+        for round_num in range(MAX_TOOL_ROUNDS + 1):
+            response = await llm_with_tools.ainvoke(messages)
+            response_content = (
+                response.content if isinstance(response.content, str)
+                else str(response.content)
+            )
+
+            # 没有工具调用，跳出循环
+            if not response.tool_calls:
+                logger.info(f"Agent loop 结束，共 {round_num} 轮工具调用")
+                break
+
+            # 执行工具调用
+            messages.append(response)  # 把 AI 响应（含 tool_calls）加入上下文
+            for tc in response.tool_calls:
+                tool_name = tc["name"]
+                tool_args = tc["args"]
+                tool_id = tc["id"]
+
+                logger.info(f"执行搜索工具: {tool_name}({tool_args})")
+
+                tool_fn = tool_map.get(tool_name)
+                if tool_fn:
+                    try:
+                        result = tool_fn.invoke(tool_args)
+                        tool_result = str(result) if not isinstance(result, str) else result
+                    except Exception as e:
+                        tool_result = f"工具执行失败: {str(e)}"
+                        logger.warning(f"工具 {tool_name} 执行失败: {e}")
+                else:
+                    tool_result = f"未知工具: {tool_name}"
+                    logger.warning(f"未知工具: {tool_name}")
+
+                messages.append(ToolMessage(
+                    content=tool_result,
+                    tool_call_id=tool_id,
+                ))
+
+            logger.debug(f"Agent loop 第 {round_num + 1} 轮完成")
+        else:
+            logger.warning(f"Agent loop 达到最大轮次 {MAX_TOOL_ROUNDS}")
+
+        # 解析最终核查结果
         result = _extract_json_from_response(response_content)
         if result:
             fact_check_text = format_fact_check_result(result)
-            logger.info(f"事实核查完成，准确性: {result.get('overall_accuracy', 'unknown')}")
+            issues = result.get("issues", [])
+            needs_revision = len(issues) > 0
+
+            logger.info(
+                f"事实核查完成 - 准确性: {result.get('overall_accuracy', 'unknown')}, "
+                f"问题数: {len(issues)}, 需要修正: {needs_revision}"
+            )
 
             return {
                 "fact_check_result": fact_check_text,
+                "needs_revision": needs_revision,
                 "current_node": "fact_checker",
-                "messages": [AIMessage(content=f"事实核查完成：\n\n{fact_check_text}")],
+                "messages": [AIMessage(
+                    content=f"事实核查完成，发现 {len(issues)} 个问题"
+                    if needs_revision
+                    else "事实核查完成，未发现明显问题"
+                )],
             }
         else:
             logger.warning("事实核查结果解析失败")
             return {
                 "fact_check_result": response_content,
+                "needs_revision": False,
                 "current_node": "fact_checker",
                 "messages": [AIMessage(content="事实核查完成，但结果格式异常")],
             }
@@ -244,6 +302,7 @@ async def fact_checker_node(state: PolishingState) -> dict[str, Any]:
         logger.error(f"FactCheckerNode 执行失败: {str(e)}")
         return {
             "error": f"事实核查失败: {str(e)}",
+            "needs_revision": False,
             "current_node": "fact_checker",
             "messages": [AIMessage(content=f"事实核查失败: {str(e)}")],
         }
@@ -273,3 +332,22 @@ def route_by_mode(state: PolishingState) -> str:
         return "fact_checker"
     else:
         return "author"  # 默认使用对抗审查
+
+
+def route_after_fact_check(state: PolishingState) -> str:
+    """事实核查后路由
+
+    如果核查发现问题，进入 debate 修正流程；否则直接结束。
+
+    Args:
+        state: 当前图状态
+
+    Returns:
+        str: "debate"（需要修正）或 "end"（无需修正）
+    """
+    if state.get("needs_revision", False):
+        logger.info("核查发现问题，进入修正流程")
+        return "debate"
+
+    logger.info("核查未发现问题，直接返回")
+    return "end"

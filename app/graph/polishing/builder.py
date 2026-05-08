@@ -56,12 +56,14 @@ async def debate_node(state: PolishingState) -> dict:
         dict: 主图状态增量更新
     """
     content = state.get("content", "")
+    fact_check_result = state.get("fact_check_result")
     messages_before = len(state.get("messages", []))
 
     # 构建 DebateState 输入
     debate_input: DebateState = {
         "content": content,
         "topic": None,
+        "fact_check_result": fact_check_result,
         "current_iteration": 0,
         "max_iterations": DEFAULT_MAX_ITERATIONS,
         "pass_score": DEFAULT_PASS_SCORE,
@@ -126,7 +128,9 @@ def _build_polishing_graph() -> StateGraph:
         START → router → route_by_mode
             ├─ "formatter" → formatter → END
             ├─ "debate" → debate_node → END
-            └─ "fact_checker" → fact_checker → END
+            └─ "fact_checker" → fact_checker → route_after_fact_check
+                                                ├─ "debate" → debate_node → END
+                                                └─ "end" → END
 
     Returns:
         StateGraph: 编译前的图实例
@@ -156,10 +160,21 @@ def _build_polishing_graph() -> StateGraph:
         },
     )
 
-    # 各模式 → END
+    # Mode 1 → END
     graph.add_edge("formatter", END)
+
+    # Mode 2 → END
     graph.add_edge("debate", END)
-    graph.add_edge("fact_checker", END)
+
+    # Mode 3: fact_checker → 条件边 → debate（有问题）或 END（无问题）
+    graph.add_conditional_edges(
+        "fact_checker",
+        _nodes.route_after_fact_check,
+        {
+            "debate": "debate",
+            "end": END,
+        },
+    )
 
     return graph
 
