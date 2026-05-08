@@ -91,6 +91,12 @@ class TaskStatusResponse(BaseModel):
         description="最终结果（仅在 completed 状态时有值）",
         examples=["# 微服务架构演进\n\n完整的文章内容..."]
     )
+
+    fact_check_result: Optional[str] = Field(
+        default=None,
+        description="事实核查报告（仅 Mode 3 有值）",
+        examples=["**总体准确性**：medium\n\n**发现的问题**：\n1. ..."]
+    )
     
     error: Optional[str] = Field(
         default=None,

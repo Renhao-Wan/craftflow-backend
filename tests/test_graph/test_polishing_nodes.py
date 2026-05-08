@@ -293,6 +293,8 @@ class TestFactCheckerNode:
 
         mock_llm = MagicMock()
         mock_llm.bind_tools.return_value = mock_llm_with_tools
+        # 模拟 llm.ainvoke 也返回相同的响应
+        mock_llm.ainvoke = AsyncMock(return_value=mock_response)
 
         with patch("app.graph.polishing.nodes.get_default_llm", return_value=mock_llm):
             state: PolishingState = {

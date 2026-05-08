@@ -116,11 +116,13 @@ class TaskBroadcaster:
         created_at: Any = None,
         updated_at: Any = None,
         data: dict[str, Any] | None = None,
+        fact_check_result: str | None = None,
     ) -> None:
         """广播任务完成
 
         Args:
             data: 附加数据（如 original_content、mode），透传给前端
+            fact_check_result: 事实核查报告（仅 Mode 3）
         """
         message: dict[str, Any] = {
             "type": "task_result",
@@ -133,6 +135,8 @@ class TaskBroadcaster:
             message["updatedAt"] = str(updated_at)
         if data:
             message["data"] = data
+        if fact_check_result:
+            message["factCheckResult"] = fact_check_result
         await self._send_to_subscribers(task_id, message)
 
     async def broadcast_error(self, task_id: str, error: str) -> None:

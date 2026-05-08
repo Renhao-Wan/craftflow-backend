@@ -224,20 +224,18 @@ async def fact_checker_node(state: PolishingState) -> dict[str, Any]:
 
         # Agent loop: LLM → 执行 tool_calls → 结果喂回 LLM → 重复
         tool_map = {t.name: t for t in SEARCH_TOOLS}
+        final_response = None
 
         for round_num in range(MAX_TOOL_ROUNDS + 1):
             response = await llm_with_tools.ainvoke(messages)
-            response_content = (
-                response.content if isinstance(response.content, str)
-                else str(response.content)
-            )
 
-            # 没有工具调用，跳出循环
+            # 没有工具调用，这是最终响应
             if not response.tool_calls:
+                final_response = response
                 logger.info(f"Agent loop 结束，共 {round_num} 轮工具调用")
                 break
 
-            # 执行工具调用
+            # 有工具调用，执行工具
             messages.append(response)  # 把 AI 响应（含 tool_calls）加入上下文
             for tc in response.tool_calls:
                 tool_name = tc["name"]
@@ -265,17 +263,28 @@ async def fact_checker_node(state: PolishingState) -> dict[str, Any]:
 
             logger.debug(f"Agent loop 第 {round_num + 1} 轮完成")
         else:
-            logger.warning(f"Agent loop 达到最大轮次 {MAX_TOOL_ROUNDS}")
+            # 达到最大轮次，再次调用 LLM 获取最终文本响应（不含工具调用）
+            logger.warning(f"Agent loop 达到最大轮次 {MAX_TOOL_ROUNDS}，获取最终响应")
+            final_response = await llm.ainvoke(messages)
+
+        # 使用最终响应的内容
+        response_content = (
+            final_response.content if isinstance(final_response.content, str)
+            else str(final_response.content)
+        )
 
         # 解析最终核查结果
         result = _extract_json_from_response(response_content)
         if result:
             fact_check_text = format_fact_check_result(result)
             issues = result.get("issues", [])
-            needs_revision = len(issues) > 0
+            overall_accuracy = result.get("overall_accuracy", "unknown")
+
+            # 只要不是 high 就进入修正流程
+            needs_revision = overall_accuracy != "high"
 
             logger.info(
-                f"事实核查完成 - 准确性: {result.get('overall_accuracy', 'unknown')}, "
+                f"事实核查完成 - 准确性: {overall_accuracy}, "
                 f"问题数: {len(issues)}, 需要修正: {needs_revision}"
             )
 
@@ -337,7 +346,10 @@ def route_by_mode(state: PolishingState) -> str:
 def route_after_fact_check(state: PolishingState) -> str:
     """事实核查后路由
 
-    如果核查发现问题，进入 debate 修正流程；否则直接结束。
+    根据核查结果的准确性和问题数量决定是否进入修正流程：
+    - overall_accuracy == "low"：强制进入修正
+    - overall_accuracy == "medium" 且有 issues：进入修正
+    - overall_accuracy == "high" 或无 issues：直接返回
 
     Args:
         state: 当前图状态
@@ -345,9 +357,26 @@ def route_after_fact_check(state: PolishingState) -> str:
     Returns:
         str: "debate"（需要修正）或 "end"（无需修正）
     """
-    if state.get("needs_revision", False):
+    needs_revision = state.get("needs_revision", False)
+    fact_check_result = state.get("fact_check_result", "")
+
+    # 解析 overall_accuracy（从 fact_check_result 中提取）
+    overall_accuracy = "unknown"
+    if fact_check_result:
+        if "low" in fact_check_result.lower() and "总体准确性" in fact_check_result:
+            overall_accuracy = "low"
+        elif "medium" in fact_check_result.lower() and "总体准确性" in fact_check_result:
+            overall_accuracy = "medium"
+        elif "high" in fact_check_result.lower() and "总体准确性" in fact_check_result:
+            overall_accuracy = "high"
+
+    # 决策逻辑
+    if overall_accuracy == "low":
+        logger.info("核查准确性为 low，强制进入修正流程")
+        return "debate"
+    elif needs_revision:
         logger.info("核查发现问题，进入修正流程")
         return "debate"
-
-    logger.info("核查未发现问题，直接返回")
-    return "end"
+    else:
+        logger.info(f"核查准确性为 {overall_accuracy}，无需修正")
+        return "end"

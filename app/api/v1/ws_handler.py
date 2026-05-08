@@ -195,6 +195,7 @@ async def _handle_get_task_status(
                 "awaiting": status.awaiting,
                 "data": status.data,
                 "result": status.result,
+                "factCheckResult": status.fact_check_result,
                 "error": status.error,
                 "progress": status.progress,
                 "createdAt": str(status.created_at) if status.created_at else None,

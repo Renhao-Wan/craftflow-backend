@@ -110,6 +110,7 @@ class PolishingService:
         thread_id: str,
         status: str,
         result: Optional[str] = None,
+        fact_check_result: Optional[str] = None,
         error: Optional[str] = None,
     ) -> None:
         """将终态任务保存到 SQLite 并释放内存"""
@@ -129,6 +130,7 @@ class PolishingService:
                 "graph_type": "polishing",
                 "status": status,
                 "topic": self._extract_topic(content) if content else None,
+                "description": fact_check_result,  # 核查报告存入 description
                 "content": content,
                 "mode": mode,
                 "result": result or "",
@@ -228,10 +230,13 @@ class PolishingService:
             # 从图状态提取结果
             graph_state = result or {}
             final_result = self._extract_result(graph_state) or ""
+            fact_check_result = graph_state.get("fact_check_result")
 
             # 持久化 + 清理 + 释放内存
             await self._persist_and_cleanup(
-                task_id, thread_id, "completed", result=final_result,
+                task_id, thread_id, "completed",
+                result=final_result,
+                fact_check_result=fact_check_result,
             )
             logger.info(f"润色任务完成 - task_id: {task_id}")
 
@@ -308,6 +313,7 @@ class PolishingService:
                 awaiting=awaiting,
                 data=data,
                 result=row.get("result"),
+                fact_check_result=row.get("description"),  # description 存储核查报告
                 error=row.get("error"),
                 progress=row.get("progress"),
                 state=None,
@@ -346,6 +352,7 @@ class PolishingService:
 
             if task["status"] == "completed":
                 response.result = self._extract_result(graph_state)
+                response.fact_check_result = graph_state.get("fact_check_result")
 
             if include_state:
                 response.state = self._serialize_state(graph_state)
@@ -466,14 +473,20 @@ class PolishingService:
             graph_state = snapshot.values if snapshot else {}
 
             result = self._extract_result(graph_state)
+            fact_check_result = graph_state.get("fact_check_result")
             created_at = self._tasks[task_id]["created_at"]
 
             # 持久化到 SQLite + 释放内存
             await self._persist_and_cleanup(
-                task_id, thread_id, "completed", result=result or "",
+                task_id, thread_id, "completed",
+                result=result or "",
+                fact_check_result=fact_check_result,
             )
 
-            await broadcaster.broadcast_result(task_id, result or "", created_at)
+            await broadcaster.broadcast_result(
+                task_id, result or "", created_at,
+                fact_check_result=fact_check_result,
+            )
 
         except Exception as e:
             self._update_task(task_id, status="failed", error=str(e))
@@ -492,8 +505,8 @@ class PolishingService:
 
     @staticmethod
     def _extract_result(state: dict) -> Optional[str]:
-        """从图状态中提取最终结果"""
-        # Mode 2 (Debate) 的结果在 final_content
+        """从图状态中提取最终结果（文章内容）"""
+        # Mode 2 (Debate) 和 Mode 3 (Fact Checker + Debate) 的结果在 final_content
         final_content = state.get("final_content")
         if final_content:
             return final_content
@@ -503,10 +516,11 @@ class PolishingService:
         if formatted_content:
             return formatted_content
 
-        # Mode 3 (Fact Checker) 的结果在 fact_check_result
-        fact_check_result = state.get("fact_check_result")
-        if fact_check_result:
-            return fact_check_result
+        # Mode 3 没有进入修正流程时，返回原始内容（核查报告不作为文章结果）
+        # 核查报告通过 fact_check_result 字段单独传递
+        content = state.get("content")
+        if content:
+            return content
 
         return None
 
