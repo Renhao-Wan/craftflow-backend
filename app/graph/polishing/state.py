@@ -53,3 +53,6 @@ class PolishingState(TypedDict):
 
     # 消息流
     messages: Annotated[list[BaseMessage], operator.add]
+
+    # 内部标识（用于进度回调，不参与图逻辑）
+    task_id: Optional[str]

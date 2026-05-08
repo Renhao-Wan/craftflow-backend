@@ -8,9 +8,10 @@
 AuthorNode、EditorNode 等对抗循环节点位于 debate/nodes.py。
 """
 
+import asyncio
 import json
 import re
-from typing import Any
+from typing import Any, Callable, Awaitable
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
@@ -29,6 +30,33 @@ from app.graph.polishing.state import PolishingState
 from app.graph.tools.search import SEARCH_TOOLS
 
 logger = get_logger(__name__)
+
+# ============================================
+# 进度回调注册表（service 层注册，node 层调用）
+# ============================================
+
+_ProgressCallback = Callable[[str, str, float], Awaitable[None]]
+_progress_callbacks: dict[str, _ProgressCallback] = {}
+
+
+def register_progress_callback(task_id: str, callback: _ProgressCallback) -> None:
+    """注册任务的进度回调（service 层调用）"""
+    _progress_callbacks[task_id] = callback
+
+
+def unregister_progress_callback(task_id: str) -> None:
+    """注销任务的进度回调"""
+    _progress_callbacks.pop(task_id, None)
+
+
+async def _report_progress(task_id: str, node: str, label: str, progress: float) -> None:
+    """报告中间进度（node 层调用）"""
+    cb = _progress_callbacks.get(task_id)
+    if cb:
+        try:
+            await cb(node, label, progress)
+        except Exception as e:
+            logger.warning(f"进度回调失败: {e}")
 
 
 def _extract_json_from_response(text: str) -> dict[str, Any] | None:
@@ -208,8 +236,16 @@ async def fact_checker_node(state: PolishingState) -> dict[str, Any]:
         dict: 状态增量更新（含 needs_revision 标记）
     """
     content = state.get("content", "")
+    task_id = state.get("task_id", "")
+    mode = state.get("mode", 3)
 
     logger.info("FactCheckerNode 开始执行")
+
+    # 进度范围：mode 3 为 10%-50%（后续 debate）或 10%-90%（high 直接结束）
+    fc_start = 10.0
+    fc_end = 50.0  # 先按 50% 计算，最终由 _calculate_fact_checker_progress 调整
+
+    await _report_progress(task_id, "fact_checker", "事实核查", fc_start)
 
     try:
         llm = get_default_llm()
@@ -229,6 +265,14 @@ async def fact_checker_node(state: PolishingState) -> dict[str, Any]:
         for round_num in range(MAX_TOOL_ROUNDS + 1):
             response = await llm_with_tools.ainvoke(messages)
 
+            # 调试日志：记录 LLM 响应
+            logger.debug(
+                f"LLM 响应 - 轮次: {round_num}, "
+                f"has_tool_calls: {bool(response.tool_calls)}, "
+                f"tool_calls_count: {len(response.tool_calls) if response.tool_calls else 0}, "
+                f"content_preview: {str(response.content)[:200]}"
+            )
+
             # 没有工具调用，这是最终响应
             if not response.tool_calls:
                 final_response = response
@@ -247,8 +291,13 @@ async def fact_checker_node(state: PolishingState) -> dict[str, Any]:
                 tool_fn = tool_map.get(tool_name)
                 if tool_fn:
                     try:
-                        result = tool_fn.invoke(tool_args)
+                        result = await asyncio.wait_for(
+                            tool_fn.ainvoke(tool_args), timeout=30
+                        )
                         tool_result = str(result) if not isinstance(result, str) else result
+                    except asyncio.TimeoutError:
+                        tool_result = f"工具执行超时（30秒）: {tool_name}"
+                        logger.warning(f"工具 {tool_name} 执行超时")
                     except Exception as e:
                         tool_result = f"工具执行失败: {str(e)}"
                         logger.warning(f"工具 {tool_name} 执行失败: {e}")
@@ -261,6 +310,9 @@ async def fact_checker_node(state: PolishingState) -> dict[str, Any]:
                     tool_call_id=tool_id,
                 ))
 
+            # 报告中间进度
+            round_progress = fc_start + (round_num + 1) / (MAX_TOOL_ROUNDS + 1) * (fc_end - fc_start)
+            await _report_progress(task_id, "fact_checker", f"事实核查（第 {round_num + 1} 轮搜索）", round_progress)
             logger.debug(f"Agent loop 第 {round_num + 1} 轮完成")
         else:
             # 达到最大轮次，再次调用 LLM 获取最终文本响应（不含工具调用）
@@ -272,6 +324,9 @@ async def fact_checker_node(state: PolishingState) -> dict[str, Any]:
             final_response.content if isinstance(final_response.content, str)
             else str(final_response.content)
         )
+
+        # 报告最终分析阶段进度
+        await _report_progress(task_id, "fact_checker", "正在生成核查报告", fc_end)
 
         # 解析最终核查结果
         result = _extract_json_from_response(response_content)
@@ -346,10 +401,10 @@ def route_by_mode(state: PolishingState) -> str:
 def route_after_fact_check(state: PolishingState) -> str:
     """事实核查后路由
 
-    根据核查结果的准确性和问题数量决定是否进入修正流程：
-    - overall_accuracy == "low"：强制进入修正
-    - overall_accuracy == "medium" 且有 issues：进入修正
-    - overall_accuracy == "high" 或无 issues：直接返回
+    根据 needs_revision 标记决定是否进入修正流程。
+    needs_revision 由 fact_checker_node 根据 overall_accuracy 设置：
+    - overall_accuracy == "high" → needs_revision = False → END
+    - overall_accuracy != "high" → needs_revision = True → debate
 
     Args:
         state: 当前图状态
@@ -358,25 +413,10 @@ def route_after_fact_check(state: PolishingState) -> str:
         str: "debate"（需要修正）或 "end"（无需修正）
     """
     needs_revision = state.get("needs_revision", False)
-    fact_check_result = state.get("fact_check_result", "")
 
-    # 解析 overall_accuracy（从 fact_check_result 中提取）
-    overall_accuracy = "unknown"
-    if fact_check_result:
-        if "low" in fact_check_result.lower() and "总体准确性" in fact_check_result:
-            overall_accuracy = "low"
-        elif "medium" in fact_check_result.lower() and "总体准确性" in fact_check_result:
-            overall_accuracy = "medium"
-        elif "high" in fact_check_result.lower() and "总体准确性" in fact_check_result:
-            overall_accuracy = "high"
-
-    # 决策逻辑
-    if overall_accuracy == "low":
-        logger.info("核查准确性为 low，强制进入修正流程")
-        return "debate"
-    elif needs_revision:
+    if needs_revision:
         logger.info("核查发现问题，进入修正流程")
         return "debate"
     else:
-        logger.info(f"核查准确性为 {overall_accuracy}，无需修正")
+        logger.info("核查准确性为 high，无需修正")
         return "end"

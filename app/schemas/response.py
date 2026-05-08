@@ -73,7 +73,13 @@ class TaskStatusResponse(BaseModel):
         description="当前执行的节点名称",
         examples=["PlannerNode"]
     )
-    
+
+    current_node_label: Optional[str] = Field(
+        default=None,
+        description="当前执行节点的中文标签",
+        examples=["路由决策", "事实核查", "作者重写"]
+    )
+
     awaiting: Optional[str] = Field(
         default=None,
         description="等待的人工操作类型（仅在 interrupted 状态时有值）",

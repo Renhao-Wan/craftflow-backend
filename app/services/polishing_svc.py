@@ -19,6 +19,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from app.core.exceptions import GraphExecutionError, TaskNotFoundError
 from app.core.logger import get_logger
 from app.graph.polishing.builder import get_polishing_graph
+from app.graph.polishing.nodes import register_progress_callback, unregister_progress_callback
 from app.schemas.response import TaskResponse, TaskStatusResponse
 from app.services.checkpointer import cleanup_checkpoint
 from app.services.task_store import TaskStore
@@ -38,6 +39,14 @@ NODE_LABELS = {
     "formatter": "极速格式化",
     "debate": "专家对抗审查",
     "fact_checker": "事实核查",
+}
+
+# Debate 子图节点标签映射
+DEBATE_NODE_LABELS = {
+    "author": "作者重写",
+    "editor": "编辑评审",
+    "increment_iteration": "迭代更新",
+    "finalize": "最终定稿",
 }
 
 
@@ -197,6 +206,7 @@ class PolishingService:
             "scores": [],
             "overall_score": None,
             "messages": [],
+            "task_id": task_id,
         }
 
         config = self._build_config(thread_id)
@@ -310,6 +320,7 @@ class PolishingService:
                 task_id=task_id,
                 status=row["status"],
                 current_node=None,
+                current_node_label=None,
                 awaiting=awaiting,
                 data=data,
                 result=row.get("result"),
@@ -348,6 +359,11 @@ class PolishingService:
 
             current_node = graph_state.get("current_node")
             response.current_node = current_node
+            response.current_node_label = (
+                DEBATE_NODE_LABELS.get(current_node)
+                or NODE_LABELS.get(current_node)
+                or current_node
+            )
             response.progress = self._calculate_progress(graph_state, task["status"])
 
             if task["status"] == "completed":
@@ -427,6 +443,7 @@ class PolishingService:
             "scores": [],
             "overall_score": None,
             "messages": [],
+            "task_id": task_id,
         }
 
         config = self._build_config(thread_id)
@@ -434,23 +451,55 @@ class PolishingService:
 
         mode_name = MODE_NAMES.get(mode, f"模式{mode}")
 
+        # 注册进度回调，让 fact_checker_node 能推送中间进度
+        async def _progress_cb(node: str, label: str, progress: float) -> None:
+            await broadcaster.broadcast_update(
+                task_id,
+                {
+                    "status": "running",
+                    "currentNode": node,
+                    "currentNodeLabel": label,
+                    "progress": progress,
+                },
+            )
+
+        register_progress_callback(task_id, _progress_cb)
+
         try:
             logger.info(f"润色任务流式启动 - task_id: {task_id}, mode: {mode} ({mode_name})")
 
+            # 使用 astream_events 监听所有层级的节点事件（包括子图）
             final_state: dict = {}
-            async for node_output in graph.astream(initial_state, config):
-                # node_output: {"node_name": {节点输出的增量字典}}
-                for node_name, partial in node_output.items():
-                    if node_name == "__end__":
-                        final_state = partial if isinstance(partial, dict) else {}
+            async for event in graph.astream_events(initial_state, config, version="v2"):
+                kind = event.get("event", "")
+                data = event.get("data", {})
+                node_name = event.get("name", "")
+
+                # 只处理节点完成事件
+                if kind == "on_chain_end" and isinstance(data, dict):
+                    output = data.get("output")
+                    if not isinstance(output, dict):
                         continue
 
-                    if not isinstance(partial, dict):
+                    # 跳过顶层图结束事件
+                    if node_name == "LangGraph":
+                        final_state = output
                         continue
 
-                    current_node = partial.get("current_node", node_name)
+                    # 获取节点标签和进度
+                    current_node = output.get("current_node", node_name)
                     label = NODE_LABELS.get(current_node, current_node)
-                    progress = self._calculate_progress(partial, "running")
+
+                    # 子图节点特殊处理
+                    if current_node in ("author", "editor", "increment_iteration", "finalize"):
+                        # debate 子图节点，计算更细粒度的进度
+                        iteration = output.get("current_iteration", 0)
+                        progress = self._calculate_debate_progress(current_node, iteration, mode)
+                        label = DEBATE_NODE_LABELS.get(current_node, label)
+                    elif current_node == "fact_checker":
+                        progress = self._calculate_fact_checker_progress(output, mode)
+                    else:
+                        progress = self._calculate_progress(output, "running")
 
                     await broadcaster.broadcast_update(
                         task_id,
@@ -498,6 +547,8 @@ class PolishingService:
             )
 
             await broadcaster.broadcast_error(task_id, str(e))
+        finally:
+            unregister_progress_callback(task_id)
 
     # ============================================
     # 内部辅助方法
@@ -550,12 +601,82 @@ class PolishingService:
 
         current_node = state.get("current_node", "")
         progress_map = {
-            "router": 20.0,
+            "router": 10.0,
             "formatter": 60.0,
             "debate": 60.0,
-            "fact_checker": 60.0,
+            "fact_checker": 30.0,
         }
         return progress_map.get(current_node, 10.0)
+
+    @staticmethod
+    def _calculate_debate_progress(
+        node_name: str, iteration: int, mode: int,
+    ) -> float:
+        """计算 Debate 子图节点的进度
+
+        进度分配：
+        - mode 2: router(10%) → debate(10%-90%) → 完成(100%)
+        - mode 3: router(10%) → fact_checker(10%-50%) → debate(50%-90%) → 完成(100%)
+
+        Args:
+            node_name: 子图节点名称
+            iteration: 当前迭代轮次
+            mode: 润色模式
+        """
+        max_iterations = 3  # 默认最大迭代次数
+
+        # debate 在整体进度中的范围
+        if mode == 3:
+            debate_start = 50.0
+            debate_end = 90.0
+        else:
+            debate_start = 10.0
+            debate_end = 90.0
+
+        debate_range = debate_end - debate_start
+        iteration_progress = iteration / max_iterations
+
+        # 每轮迭代的进度分配
+        per_iteration = debate_range / max_iterations
+
+        if node_name == "author":
+            # author 完成 = 当前轮次开始 + 40% 的轮次进度
+            return debate_start + (iteration_progress * debate_range) + per_iteration * 0.4
+        elif node_name == "editor":
+            # editor 完成 = 当前轮次开始 + 80% 的轮次进度
+            return debate_start + (iteration_progress * debate_range) + per_iteration * 0.8
+        elif node_name == "increment_iteration":
+            # 迭代更新 = 当前轮次完成
+            return debate_start + ((iteration + 1) / max_iterations) * debate_range
+        elif node_name == "finalize":
+            # 最终定稿 = debate 结束
+            return debate_end
+        else:
+            return debate_start
+
+    @staticmethod
+    def _calculate_fact_checker_progress(state: dict, mode: int) -> float:
+        """计算 FactChecker 节点的进度
+
+        进度分配：
+        - mode 3: router(10%) → fact_checker(10%-50%) → debate(50%-90%) → 完成(100%)
+
+        Args:
+            state: 节点输出状态
+            mode: 润色模式
+        """
+        if mode != 3:
+            return 60.0
+
+        # 使用 needs_revision 判断是否需要进入 debate
+        needs_revision = state.get("needs_revision", False)
+
+        if not needs_revision:
+            # high 准确性，fact_checker 完成即任务完成
+            return 90.0
+        else:
+            # medium/low，fact_checker 完成后还要进入 debate
+            return 50.0
 
     @staticmethod
     def _serialize_state(state: dict) -> dict:

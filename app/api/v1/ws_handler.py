@@ -192,6 +192,7 @@ async def _handle_get_task_status(
                 "taskId": status.task_id,
                 "status": status.status,
                 "currentNode": status.current_node,
+                "currentNodeLabel": status.current_node_label,
                 "awaiting": status.awaiting,
                 "data": status.data,
                 "result": status.result,

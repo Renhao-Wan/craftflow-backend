@@ -432,6 +432,7 @@ class CreationService:
                 task_id=task_id,
                 status=row["status"],
                 current_node=None,
+                current_node_label=None,
                 awaiting=awaiting,
                 data=data,
                 result=row.get("result"),
@@ -452,6 +453,7 @@ class CreationService:
             task_id=task_id,
             status=task["status"],
             current_node=None,
+            current_node_label=None,
             awaiting=None,
             data=None,
             result=None,
@@ -469,6 +471,7 @@ class CreationService:
 
             current_node = graph_state.get("current_node")
             response.current_node = current_node
+            response.current_node_label = NODE_LABELS.get(current_node, current_node)
             response.progress = self._calculate_progress(graph_state, task["status"])
 
             if task["status"] == "completed":

@@ -6,7 +6,7 @@
 
 from typing import Any
 
-from langchain_community.tools.tavily_search import TavilySearchResults
+from langchain_tavily import TavilySearch
 from langchain_core.tools import tool
 
 from app.core.config import settings
@@ -20,17 +20,17 @@ class TavilySearchTool:
     提供单例模式的搜索工具实例，支持配置化管理。
     """
 
-    _instance: TavilySearchResults | None = None
+    _instance: TavilySearch | None = None
 
     @classmethod
-    def get_instance(cls, max_results: int = 5) -> TavilySearchResults:
+    def get_instance(cls, max_results: int = 5) -> TavilySearch:
         """获取 TavilySearch 工具单例
 
         Args:
             max_results: 最大返回结果数，默认 5 条
 
         Returns:
-            TavilySearchResults: 搜索工具实例
+            TavilySearch: 搜索工具实例
 
         Raises:
             ToolExecutionError: 当 API Key 未配置时抛出
@@ -42,20 +42,18 @@ class TavilySearchTool:
                     message="TAVILY_API_KEY 未配置，请在 .env 文件中设置",
                 )
 
-            # 设置环境变量以供 TavilySearchResults 使用
             import os
             os.environ["TAVILY_API_KEY"] = settings.tavily_api_key
-            
-            cls._instance = TavilySearchResults(
+
+            cls._instance = TavilySearch(
                 max_results=max_results,
-                search_depth="advanced",  # 使用高级搜索模式
-                include_answer=True,  # 包含 AI 生成的答案摘要
-                include_raw_content=False,  # 不包含原始 HTML（节省 Token）
-                include_images=False,  # 不包含图片链接
+                search_depth="advanced",
+                include_answer=True,
+                include_raw_content=False,
+                include_images=False,
             )
             logger.info(f"TavilySearch 工具初始化成功，最大结果数: {max_results}")
 
-        # 断言：确保单例实例不为 None
         assert cls._instance is not None, "TavilySearch 工具实例未正确初始化"
 
         return cls._instance
@@ -89,13 +87,12 @@ def search_internet(query: str, max_results: int = 5) -> list[dict[str, Any]]:
     try:
         logger.info(f"开始互联网搜索: query='{query}', max_results={max_results}")
 
-        # 获取搜索工具实例
         search_tool = TavilySearchTool.get_instance(max_results=max_results)
+        raw = search_tool.invoke({"query": query})
 
-        # 执行搜索
-        results = search_tool.invoke({"query": query})
+        # TavilySearch.invoke() 返回 dict: {"answer": ..., "results": [...]}
+        results = raw.get("results", []) if isinstance(raw, dict) else raw
 
-        # 格式化结果
         formatted_results = []
         for idx, result in enumerate(results, 1):
             formatted_results.append(
@@ -143,20 +140,18 @@ def search_with_answer(query: str) -> dict[str, Any]:
     try:
         logger.info(f"开始带答案的互联网搜索: query='{query}'")
 
-        # 获取搜索工具实例
         search_tool = TavilySearchTool.get_instance(max_results=3)
+        raw = search_tool.invoke({"query": query})
 
-        # 执行搜索
-        raw_results = search_tool.invoke({"query": query})
-
-        # 提取答案（Tavily 会在第一个结果中包含 answer 字段）
+        # TavilySearch.invoke() 返回 dict: {"answer": ..., "results": [...]}
         answer = ""
-        if raw_results and isinstance(raw_results, list) and len(raw_results) > 0:
-            first_result = raw_results[0]
-            if isinstance(first_result, dict):
-                answer = first_result.get("answer", "")
+        raw_results = []
+        if isinstance(raw, dict):
+            answer = raw.get("answer", "")
+            raw_results = raw.get("results", [])
+        elif isinstance(raw, list):
+            raw_results = raw
 
-        # 格式化结果
         formatted_results = []
         for idx, result in enumerate(raw_results, 1):
             if isinstance(result, dict):
