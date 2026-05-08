@@ -330,7 +330,6 @@ messages = template.format_messages(input="生成一篇关于 AI 的文章")
 
 ### 3. 可观测性
 
-- [ ] 集成 LangSmith 追踪
 - [ ] 添加 LLM 调用的性能监控
 - [ ] 记录每次调用的 Token 消耗
 

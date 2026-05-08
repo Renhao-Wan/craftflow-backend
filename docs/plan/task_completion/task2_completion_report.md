@@ -31,7 +31,6 @@
 - **LLM 配置**: llm_api_key, llm_model, max_tokens, temperature 参数
 - **状态持久化配置**: use_persistent_checkpointer, database_url, 连接池配置
 - **外部工具配置**: tavily_api_key, e2b_api_key
-- **LangSmith 追踪配置**: langchain_tracing_v2, langchain_api_key
 - **FastAPI 服务配置**: host, port, cors_origins
 - **Redis 配置**: redis_host, redis_port（可选）
 - **业务逻辑配置**: max_outline_sections, max_debate_iterations, task_timeout 等

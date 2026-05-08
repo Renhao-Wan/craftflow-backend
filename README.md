@@ -180,13 +180,6 @@ Content-Type: application/json
 
 ## 开发指南
 
-### 使用 LangGraph Studio 调试
-
-1. 安装 LangGraph Studio
-2. 打开项目目录
-3. Studio 会自动读取 `langgraph.json` 配置
-4. 可视化调试 Creation Graph 和 Polishing Graph
-
 ### 运行测试
 
 ```bash

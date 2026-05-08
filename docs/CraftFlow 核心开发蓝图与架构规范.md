@@ -188,7 +188,6 @@ craftflow-backend/
 ├── .env.dev                     # 本地环境配置 (开发/调试专属)
 ├── .env.example                 # 环境配置模板 (供协作者参考，脱敏)
 ├── .gitignore                   # Git 忽略规则 (忽略 .env, logs, __pycache__ 等)
-├── langgraph.json               # LangGraph Studio 专属调试配置
 ├── pyproject.toml               # 环境依赖 (langchain, fastapi 等)
 └── README.md                    # 项目核心介绍文档
 ```

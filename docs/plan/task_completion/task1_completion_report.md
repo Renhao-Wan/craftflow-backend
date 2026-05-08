@@ -17,7 +17,6 @@
 | `pyproject.toml` | ✅ | 使用 hatchling 构建后端，定义了所有核心依赖 |
 | `.env.example` | ✅ | 完整的环境变量模板，包含详细注释 |
 | `.env.dev` | ✅ | 开发环境配置文件（已创建，需填写 API Key） |
-| `langgraph.json` | ✅ | LangGraph Studio 调试配置 |
 | `README.md` | ✅ | 完整的项目介绍、快速启动指南 |
 | `requirements.txt` | ✅ | pip 格式的依赖清单（备用） |
 

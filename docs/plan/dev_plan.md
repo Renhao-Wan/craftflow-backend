@@ -12,7 +12,6 @@
 | `.env.dev`       | 开发环境配置（LLM API Key、数据库连接等）                 | 无    |
 | `.gitignore`     | Git 忽略规则（.env, logs, __pycache__, .venv 等） | 无    |
 | `pyproject.toml` | 项目依赖管理（Poetry/pip），定义 Python 版本、核心库版本      | 无    |
-| `langgraph.json` | LangGraph Studio 调试配置                      | 无    |
 | `README.md`      | 项目核心介绍、快速启动指南                              | 无    |
 
 ### 2. app/core/ - 基础设施层
@@ -116,7 +115,7 @@
 
 | Task ID     | 任务名称                    | 完成状态 | 涉及文件                                                                                                                       | 实现要点                                                                                                                                                                                                                   | 预估行数 | 核心依赖库                                                                                                 |
 |-------------|-------------------------|------|----------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----|-------------------------------------------------------------------------------------------------------|
-| **Task 1**  | 项目初始化与配置                | 是    | `.gitignore`, `pyproject.toml`, `.env.example`, `.env.dev`, `README.md`, `langgraph.json`                                  | 1. 创建 Poetry/pip 项目结构<br>2. 定义核心依赖（fastapi, langgraph, langchain, pydantic）<br>3. 配置 .gitignore 忽略敏感文件<br>4. 创建所有目录结构和 __init__.py 文件                                                                                  | 100 | `poetry`, `python-dotenv`                                                                             |
+| **Task 1**  | 项目初始化与配置                | 是    | `.gitignore`, `pyproject.toml`, `.env.example`, `.env.dev`, `README.md`                                  | 1. 创建 Poetry/pip 项目结构<br>2. 定义核心依赖（fastapi, langgraph, langchain, pydantic）<br>3. 配置 .gitignore 忽略敏感文件<br>4. 创建所有目录结构和 __init__.py 文件                                                                                  | 100 | `poetry`, `python-dotenv`                                                                             |
 | **Task 2**  | 基础设施层实现                 | 是    | `app/core/config.py`, `app/core/logger.py`, `app/core/exceptions.py`                                                       | 1. 使用 Pydantic BaseSettings 读取环境变量<br>2. 配置结构化日志（loguru）<br>3. 定义自定义异常类与 FastAPI 异常处理器                                                                                                                                 | 150 | `pydantic-settings`, `loguru`                                                                         |
 | **Task 3**  | 数据模型定义                  | 是    | `app/schemas/request.py`, `app/schemas/response.py`                                                                        | 1. 定义 CreationRequest（topic, description）<br>2. 定义 PolishingRequest（content, mode）<br>3. 定义 TaskResponse、TaskStatusResponse                                                                                            | 120 | `pydantic`                                                                                            |
 | **Task 4**  | LLM 工厂与通用 Prompt        | 是    | `app/graph/common/llm_factory.py`, `app/graph/common/prompts.py`                                                           | 1. 实现单例模式的 LLM 工厂（根据环境变量返回不同 Provider）<br>2. 定义**通用、跨模块可复用**的 Prompt 模板（如：Markdown 输出格式规范、通用角色定义等）                                                                                                                     | 180 | `langchain-openai`, `langchain-anthropic`, `langchain-core`                                           |
@@ -225,7 +224,7 @@ app/graph/
 
 ### 阶段三：Creation Graph（Task 6-8）
 - 目标：实现完整的创作流状态机
-- 验证方式：使用 LangGraph Studio 或单元测试验证图流转逻辑
+- 验证方式：单元测试验证图流转逻辑
 
 ### 阶段四：Polishing Graph（Task 9-12）
 - 目标：实现多阶润色流与子图复用
@@ -304,7 +303,7 @@ ruff = "^0.8.4"
 
 1. **流式响应**：使用 `graph.astream_events()` 实现 SSE，提升用户体验
 2. **多租户隔离**：在 Checkpointer 中增加 `namespace` 维度
-3. **可观测性**：集成 LangSmith 追踪，监控每个节点的 Token 消耗与耗时
+3. **可观测性**：监控每个节点的 Token 消耗与耗时
 4. **RAG 增强**：完善 `LocalKnowledge_Retriever`，支持 PDF/DOCX 上传与向量化
 5. **前端集成**：提供 WebSocket 接口，实时推送图执行状态
 

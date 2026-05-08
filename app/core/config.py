@@ -104,16 +104,6 @@ class Settings(BaseSettings):
     )
 
     # ============================================
-    # LangSmith 追踪配置
-    # ============================================
-    langchain_tracing_v2: bool = Field(default=False, description="启用 LangSmith 追踪")
-    langchain_endpoint: str = Field(
-        default="https://api.smith.langchain.com", description="LangSmith API 端点"
-    )
-    langchain_api_key: str = Field(default="", description="LangSmith API 密钥")
-    langchain_project: str = Field(default="craftflow-backend", description="LangSmith 项目名称")
-
-    # ============================================
     # FastAPI 服务配置
     # ============================================
     host: str = Field(default="0.0.0.0", description="服务监听地址")
