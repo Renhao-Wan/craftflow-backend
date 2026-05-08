@@ -131,6 +131,7 @@ def _format_running_task(task: dict[str, Any]) -> dict[str, Any]:
         result["topic"] = request.get("topic")
         result["description"] = request.get("description")
     elif graph_type == "polishing":
+        result["content"] = request.get("content")
         result["mode"] = request.get("mode")
 
     return result

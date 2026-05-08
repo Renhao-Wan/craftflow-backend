@@ -94,8 +94,14 @@ class TaskStore:
         await self._db.commit()
         logger.debug(f"任务已保存到 SQLite - task_id: {task['task_id']}")
 
-    async def get_task(self, task_id: str) -> Optional[dict[str, Any]]:
+    async def get_task(
+        self, task_id: str, graph_type: Optional[str] = None,
+    ) -> Optional[dict[str, Any]]:
         """根据 task_id 查询单个任务
+
+        Args:
+            task_id: 任务 ID
+            graph_type: 可选，限定任务类型（'creation' | 'polishing'）
 
         Returns:
             任务数据字典，不存在时返回 None
@@ -103,9 +109,15 @@ class TaskStore:
         if self._db is None:
             raise RuntimeError("TaskStore 未初始化")
 
-        cursor = await self._db.execute(
-            "SELECT * FROM tasks WHERE task_id = ?", (task_id,),
-        )
+        if graph_type:
+            cursor = await self._db.execute(
+                "SELECT * FROM tasks WHERE task_id = ? AND graph_type = ?",
+                (task_id, graph_type),
+            )
+        else:
+            cursor = await self._db.execute(
+                "SELECT * FROM tasks WHERE task_id = ?", (task_id,),
+            )
         row = await cursor.fetchone()
         if row is None:
             return None

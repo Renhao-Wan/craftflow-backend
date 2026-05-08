@@ -409,9 +409,9 @@ class CreationService:
         # 1. 先查内存（running / interrupted 任务）
         task = self._tasks.get(task_id)
 
-        # 2. 内存未找到，查 TaskStore
+        # 2. 内存未找到，查 TaskStore（仅查 creation 类型）
         if task is None:
-            row = await self.task_store.get_task(task_id)
+            row = await self.task_store.get_task(task_id, graph_type="creation")
             if row is None:
                 raise TaskNotFoundError(task_id=task_id)
 
