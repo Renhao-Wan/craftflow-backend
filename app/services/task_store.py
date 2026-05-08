@@ -141,7 +141,7 @@ class TaskStore:
 
     async def get_task_list(
         self, limit: int = 50, offset: int = 0,
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], int]:
         """查询任务列表（按创建时间降序）
 
         Args:
@@ -149,17 +149,23 @@ class TaskStore:
             offset: 偏移量（分页用）
 
         Returns:
-            任务数据字典列表
+            (任务数据字典列表, 总数)
         """
         if self._db is None:
             raise RuntimeError("TaskStore 未初始化")
 
+        # 查询总数
+        cursor = await self._db.execute("SELECT COUNT(*) FROM tasks")
+        row = await cursor.fetchone()
+        total = row[0] if row else 0
+
+        # 查询分页数据
         cursor = await self._db.execute(
             "SELECT * FROM tasks ORDER BY created_at DESC LIMIT ? OFFSET ?",
             (limit, offset),
         )
         rows = await cursor.fetchall()
-        return [_row_to_dict(cursor, row) for row in rows]
+        return [_row_to_dict(cursor, row) for row in rows], total
 
     async def delete_task(self, task_id: str) -> bool:
         """删除任务记录

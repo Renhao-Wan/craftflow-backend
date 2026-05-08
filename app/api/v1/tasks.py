@@ -31,13 +31,16 @@ async def list_tasks(
     store: TaskStore = Depends(get_task_store),
     creation_svc: CreationService = Depends(get_creation_service),
     polishing_svc: PolishingService = Depends(get_polishing_service),
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     """获取任务列表
 
     返回所有任务（包括运行中和已完成的），按创建时间降序排列。
     - running/interrupted 任务从内存 _tasks dict 获取（优先）
     - completed/failed 任务从 SQLite 获取
     - 中断任务同时存在于内存和 SQLite，以内存版本为准（去重）
+
+    Returns:
+        { items: [...], total: int }
     """
     # 1. 从内存获取运行中的任务
     running_tasks: list[dict[str, Any]] = []
@@ -52,14 +55,17 @@ async def list_tasks(
             memory_task_ids.add(task["task_id"])
 
     # 2. 从 SQLite 查询任务，排除已在内存中的（去重）
-    db_tasks = await store.get_task_list(limit=limit, offset=offset)
+    db_tasks, db_total = await store.get_task_list(limit=limit, offset=offset)
     db_tasks_deduped = [t for t in db_tasks if t["task_id"] not in memory_task_ids]
 
     # 3. 合并并按 created_at 降序排序
     all_tasks = running_tasks + db_tasks_deduped
     all_tasks.sort(key=lambda t: t.get("created_at", ""), reverse=True)
 
-    return all_tasks[:limit]
+    # 总数 = 内存中的运行态任务数 + SQLite 中的终态任务数
+    total = len(running_tasks) + db_total
+
+    return {"items": all_tasks[:limit], "total": total}
 
 
 @router.get("/tasks/{task_id}", response_model=TaskStatusResponse)
