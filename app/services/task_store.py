@@ -4,8 +4,10 @@
 运行中任务（running）继续用 _tasks dict 内存管理。
 
 数据库路径：data/sqlite/craftflow.db（相对于 craftflow-backend/）
+桌面版：%APPDATA%/CraftFlow/sqlite/craftflow.db
 """
 
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
@@ -15,8 +17,21 @@ from app.core.logger import get_logger
 
 logger = get_logger(__name__)
 
-# 数据库文件路径：craftflow-backend/data/sqlite/craftflow.db
-_DB_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "sqlite"
+
+def _get_db_dir() -> Path:
+    """获取 SQLite 数据库目录
+
+    桌面版：使用 %APPDATA%/CraftFlow/sqlite/
+    开发环境：使用 data/sqlite/
+    """
+    if getattr(sys, 'frozen', False):
+        from desktop_config import get_sqlite_dir
+        return get_sqlite_dir()
+    return Path(__file__).resolve().parent.parent.parent / "data" / "sqlite"
+
+
+# 数据库文件路径
+_DB_DIR = _get_db_dir()
 _DB_PATH = _DB_DIR / "craftflow.db"
 
 _CREATE_TABLE_SQL = """

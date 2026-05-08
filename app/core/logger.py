@@ -15,6 +15,18 @@ from loguru import logger
 from app.core.config import BASE_DIR, settings
 
 
+def _get_log_dir() -> Path:
+    """获取日志目录
+
+    桌面版：使用 %APPDATA%/CraftFlow/logs/
+    开发环境：使用 BASE_DIR/logs/
+    """
+    if getattr(sys, 'frozen', False):
+        from desktop_config import get_log_dir
+        return get_log_dir()
+    return BASE_DIR / "logs"
+
+
 def setup_logger() -> None:
     """配置全局日志系统
 
@@ -25,8 +37,8 @@ def setup_logger() -> None:
     # 移除默认的 handler
     logger.remove()
 
-    # 日志目录（基于项目根目录，不依赖进程工作目录）
-    log_dir = BASE_DIR / "logs"
+    # 日志目录
+    log_dir = _get_log_dir()
     log_dir.mkdir(exist_ok=True)
 
     # ============================================

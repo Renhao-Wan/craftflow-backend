@@ -4,6 +4,7 @@
 提供单例模式的配置访问接口。
 """
 
+import sys
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -11,9 +12,34 @@ from typing import Literal
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# 项目根目录：craftflow-backend/
-# 基于此文件路径推导，不依赖进程工作目录
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+def _get_base_dir() -> Path:
+    """获取项目根目录
+
+    桌面版（PyInstaller 打包）：使用 %APPDATA%/CraftFlow/
+    开发环境：基于文件路径推导
+    """
+    if getattr(sys, 'frozen', False):
+        # PyInstaller 打包环境
+        from desktop_config import get_data_dir
+        return get_data_dir()
+    return Path(__file__).resolve().parent.parent.parent
+
+
+def _get_env_file() -> str:
+    """获取 .env 文件路径
+
+    桌面版：从 %APPDATA%/CraftFlow/.env 读取
+    开发环境：从 .env.dev 读取
+    """
+    if getattr(sys, 'frozen', False):
+        from desktop_config import get_env_file
+        return str(get_env_file())
+    return str(_get_base_dir() / ".env.dev")
+
+
+# 项目根目录
+BASE_DIR = _get_base_dir()
 
 
 class Settings(BaseSettings):
@@ -24,7 +50,7 @@ class Settings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_file=str(BASE_DIR / ".env.dev"),
+        env_file=_get_env_file(),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",  # 忽略未定义的环境变量

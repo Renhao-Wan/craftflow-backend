@@ -10,9 +10,12 @@
 - data/sqlite/craftflow.db          （TaskStore）
 - data/chroma_db/                  （Chroma 向量数据库）
 
+桌面版使用 %APPDATA%/CraftFlow/ 目录。
+
 使用模块级单例确保全局只有一个 Checkpointer 实例。
 """
 
+import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional
@@ -27,8 +30,21 @@ from app.core.logger import get_logger
 
 logger = get_logger(__name__)
 
-# 数据目录根路径：craftflow-backend/data/
-DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+
+def _get_data_dir() -> Path:
+    """获取数据目录根路径
+
+    桌面版：使用 %APPDATA%/CraftFlow/
+    开发环境：使用 data/
+    """
+    if getattr(sys, 'frozen', False):
+        from desktop_config import get_data_dir
+        return get_data_dir()
+    return Path(__file__).resolve().parent.parent.parent / "data"
+
+
+# 数据目录根路径
+DATA_DIR = _get_data_dir()
 
 # 模块级单例
 _checkpointer: Optional[BaseCheckpointSaver] = None
